@@ -26,6 +26,10 @@ import {
 import { getFirebaseApp } from './config.js'
 import { sanitizeActorNameForStorage } from '../utils/memberDisplay.js'
 import {
+  clearPendingInviteFromStorage,
+  readPendingInviteFromStorage,
+} from '../utils/pendingInviteStorage.js'
+import {
   COL_ACTIVITY_LOGS,
   COL_COMMENTS,
   COL_TEST_CASES_ROOT,
@@ -1322,8 +1326,15 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
     if (typeof window === 'undefined') return null
     if (!emailLower) return null
     const sp = new URLSearchParams(window.location.search || '')
-    const inviteTokenOrId = String(sp.get('invite') ?? '').trim()
-    const projectId = String(sp.get('project') ?? '').trim()
+    let inviteTokenOrId = String(sp.get('invite') ?? '').trim()
+    let projectId = String(sp.get('project') ?? '').trim()
+    if (!inviteTokenOrId || !projectId) {
+      const stored = readPendingInviteFromStorage()
+      if (stored) {
+        inviteTokenOrId = stored.invite
+        projectId = stored.project
+      }
+    }
     if (!inviteTokenOrId || !projectId) return null
     try {
       // Support both forms:
@@ -1458,13 +1469,17 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
         )
       }
       await bootstrapBatch.commit()
-      if (inviteContext) setInviteJoinNotice(effectiveRole)
+      if (inviteContext) {
+        clearPendingInviteFromStorage()
+        setInviteJoinNotice(effectiveRole)
+      }
     } catch (err) {
       console.warn('[firestore] RBAC bootstrap skipped for existing profile:', err)
     }
     return {
       ...existing,
       role: effectiveRole,
+      projectId: effectiveProjectId,
     }
   }
 
@@ -1543,7 +1558,10 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
       )
     }
     await bootstrapBatch.commit()
-    if (inviteContext) setInviteJoinNotice(role)
+    if (inviteContext) {
+      clearPendingInviteFromStorage()
+      setInviteJoinNotice(role)
+    }
   } catch (err) {
     console.warn('[firestore] RBAC bootstrap skipped for new profile:', err)
   }

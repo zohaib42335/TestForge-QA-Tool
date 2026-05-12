@@ -2,9 +2,10 @@
  * Login — Firebase authentication UI (Google + email/password + register).
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { LogoStacked } from './Logo.jsx'
+import { capturePendingInviteFromUrl } from '../utils/pendingInviteStorage.js'
 
 const inputClass =
   'bg-white border-[0.5px] border-[#B0C0E0] text-[#1A3263] rounded-lg px-3 py-2.5 w-full focus:border-[#1A3263] focus:ring-2 focus:ring-[rgba(26,50,99,0.15)] outline-none transition placeholder:text-[#8A9BBF] hover:border-[#8A9BBF]'
@@ -30,6 +31,10 @@ export default function Login() {
   const [mode, setMode] = useState(/** @type {'signin' | 'register'} */ ('signin'))
   const [formHint, setFormHint] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+
+  useEffect(() => {
+    capturePendingInviteFromUrl()
+  }, [])
 
   /**
    * @param {import('react').FormEvent} e
