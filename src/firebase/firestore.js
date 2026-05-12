@@ -1432,6 +1432,7 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
           role: effectiveRole,
           joinedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
+          inviteId: inviteContext?.inviteId || null,
         },
         { merge: true },
       )
@@ -1514,6 +1515,7 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
         joinedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        inviteId: inviteContext?.inviteId || null,
       },
       { merge: true },
     )

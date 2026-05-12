@@ -32,6 +32,35 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == projectId;
     }
 
+    function inviteEmail() {
+      return isSignedIn() && request.auth.token.email is string
+        ? lower(request.auth.token.email)
+        : "";
+    }
+
+    function canReadInvite(projectId) {
+      return hasRole(projectId, ['Owner','Admin']) ||
+        (resource.data.email is string && lower(resource.data.email) == inviteEmail());
+    }
+
+    function canAcceptInvite(projectId) {
+      return isSignedIn() &&
+        resource.data.email is string &&
+        lower(resource.data.email) == inviteEmail() &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'accepted' &&
+        request.resource.data.acceptedBy == request.auth.uid;
+    }
+
+    function canCreateInvitedMember(projectId, memberId) {
+      return isSelf(memberId) &&
+        request.resource.data.inviteId is string &&
+        exists(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)) &&
+        get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.status == 'pending' &&
+        get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.email is string &&
+        lower(get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.email) == inviteEmail();
+    }
+
     // -----------------------------------------------------------------------
     // User profile bootstrap (required during first sign-in)
     // -----------------------------------------------------------------------
@@ -54,13 +83,14 @@ service cloud.firestore {
       match /members/{memberId} {
         allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']) || isSelf(memberId);
         // Initial bootstrap: allow user to create their own Owner membership under their own project.
-        allow create: if isSelf(memberId) && isOwnProject(projectId);
+        allow create: if (isSelf(memberId) && isOwnProject(projectId)) || canCreateInvitedMember(projectId, memberId);
         allow update, delete: if hasRole(projectId, ['Owner','Admin']);
       }
 
       match /invites/{inviteId} {
-        allow read: if hasRole(projectId, ['Owner','Admin']);
-        allow create, update: if hasRole(projectId, ['Owner','Admin']);
+        allow read: if canReadInvite(projectId);
+        allow create: if hasRole(projectId, ['Owner','Admin']);
+        allow update: if hasRole(projectId, ['Owner','Admin']) || canAcceptInvite(projectId);
         allow delete: if false;
       }
 
