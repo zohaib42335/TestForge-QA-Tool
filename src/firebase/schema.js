@@ -34,7 +34,7 @@
  * Data layout
  * -----------
  *   users/{userId}                    → profile document (optional fields, see PROFILE_FIELDS)
- *   users/{userId}/testCases/{docId} → one document per test case
+ *   testCases/{docId}                 → **workspace-wide** test case library (all roles read; Admin/QA Lead write)
  *   users/{userId}/templates/{docId} → one document per custom template
  *
  * Document IDs are Firestore-generated unless you pass a custom ID in helpers that support it.
@@ -64,11 +64,29 @@ export const SCHEMA_VERSION = 1
 /** Top-level collection for per-user data. */
 export const COL_USERS = 'users'
 
-/** Subcollection name for test cases (path: users/{uid}/testCases/{docId}). */
+/**
+ * Top-level workspace test case library (path: testCases/{docId}).
+ * All signed-in users read the same collection; Admin/QA Lead create/update/delete.
+ */
+export const COL_TEST_CASES_ROOT = 'testCases'
+
+/** Subcollection name (legacy segment name only; live data uses {@link COL_TEST_CASES_ROOT}). */
 export const SUB_TEST_CASES = 'testCases'
 
 /** Subcollection name for templates (path: users/{uid}/templates/{docId}). */
 export const SUB_TEMPLATES = 'templates'
+
+/** Subcollection name for test runs (path: users/{uid}/testRuns/{docId}). */
+export const SUB_TEST_RUNS = 'testRuns'
+
+/** Subcollection name for per-run test results (path: users/{uid}/testRunResults/{docId}). */
+export const SUB_TEST_RUN_RESULTS = 'testRunResults'
+
+/** Top-level collection for thread comments on test cases (path: comments/{docId}). */
+export const COL_COMMENTS = 'comments'
+
+/** Top-level append-only activity / audit log (path: activityLogs/{docId}). */
+export const COL_ACTIVITY_LOGS = 'activityLogs'
 
 /**
  * Returns Firestore path to the user root document (profile).
@@ -86,6 +104,13 @@ export function pathUserDoc(userId) {
  */
 export function pathUserTestCases(userId) {
   return `${COL_USERS}/${userId}/${SUB_TEST_CASES}`
+}
+
+/**
+ * @returns {string} Firestore path segment for the shared test case collection (`testCases`).
+ */
+export function pathWorkspaceTestCases() {
+  return COL_TEST_CASES_ROOT
 }
 
 /**

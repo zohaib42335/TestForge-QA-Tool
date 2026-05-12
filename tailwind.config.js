@@ -8,21 +8,17 @@ export default {
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       colors: {
-        /** Orange & white theme — primary actions and accents */
-        brand: {
-          50: '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          400: '#fb923c',
-          500: '#f97316',
-          600: '#ea580c',
-          700: '#c2410c',
-        },
-        /** Page wash, cards, dividers */
-        surface: {
-          DEFAULT: '#fff7ed',
-          card: '#ffffff',
-          border: '#fdba74',
+        navy: {
+          50: '#EEF2FB',
+          100: '#D6E0F5',
+          200: '#B0C0E0',
+          300: '#8A9BBF',
+          400: '#4169C4',
+          500: '#1A3263',
+          600: '#122247',
+          700: '#0E1A35',
+          800: '#091222',
+          900: '#050C17',
         },
       },
     },

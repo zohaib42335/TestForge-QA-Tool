@@ -1,0 +1,13 @@
+name = "testforge-jira-proxy"
+main = "jira-proxy.js"
+compatibility_date = "2024-09-23"
+
+# Free Cloudflare Workers plan:
+#   - 100,000 requests/day
+#   - No credit card required
+#   - Workers URL: https://testforge-jira-proxy.<your-account>.workers.dev
+
+# Uncomment to add a custom route (optional):
+# [[routes]]
+# pattern = "jira-proxy.your-domain.com/*"
+# zone_name = "your-domain.com"

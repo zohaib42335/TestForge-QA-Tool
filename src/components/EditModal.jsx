@@ -3,10 +3,13 @@
  * @param {Object} props
  * @param {Object|null} props.testCase - Test case being edited, null = closed
  * @param {Function} props.onSave - Called with updated test case data
+ * @param {boolean} [props.isSubmitting] - True while saving to Firestore
+ * @param {string|null} [props.savingDocId] - Firestore doc id currently saving (for future use)
  * @param {Function} props.onClose - Called to close modal
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRole } from '../hooks/useRole'
 import {
   DEFAULT_FORM_VALUES,
   ENVIRONMENT_OPTIONS,
@@ -21,13 +24,13 @@ import { validateTestCase } from '../utils/validation.js'
 const AUTOMATION_OPTIONS = ['Manual', 'Automated', 'To Be Automated']
 
 const inputClass =
-  'bg-white border border-orange-300 text-stone-900 rounded-lg px-3 py-2 w-full focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition placeholder:text-stone-400'
+  'bg-white border-[0.5px] border-[#B0C0E0] text-[#1A3263] rounded-lg px-3 py-2 w-full focus:border-[#1A3263] focus:ring-2 focus:ring-[rgba(26,50,99,0.15)] outline-none transition placeholder:text-[#8A9BBF] hover:border-[#8A9BBF]'
 const inputErrorClass = ' border-red-400 bg-red-50'
-const labelClass = 'block text-sm text-stone-700 mb-1'
+const labelClass = 'block text-sm text-[#5A6E9A] mb-1'
 const sectionHeaderClass =
-  'text-xs uppercase tracking-widest text-orange-600 font-mono px-4 py-3 bg-orange-50 border-b border-orange-200'
+  'text-xs uppercase tracking-widest text-[#1A3263] font-mono px-4 py-3 bg-white border-b border-[#D6E0F5]'
 const sectionCardClass =
-  'bg-white rounded-xl mb-3 border border-orange-200 shadow-sm overflow-hidden'
+  'bg-white rounded-xl mb-3 border border-[#B0C0E0] shadow-sm overflow-hidden'
 
 /**
  * @param {string} name
@@ -64,17 +67,29 @@ function testCaseToFormData(tc) {
  * @param {Object} props
  * @param {Object|null} props.testCase
  * @param {Function} props.onSave
+ * @param {boolean} [props.isSubmitting]
+ * @param {string|null} [props.savingDocId]
  * @param {Function} props.onClose
  */
-export default function EditModal({ testCase, onSave, onClose }) {
+export default function EditModal({
+  testCase,
+  onSave,
+  isSubmitting = false,
+  savingDocId = null,
+  onClose,
+}) {
+  const { hasPermission } = useRole()
+  const canAssign = hasPermission('testcase_assign')
   const [formData, setFormData] = useState(() => testCaseToFormData(testCase))
   /** @type {[Record<string, string>, import('react').Dispatch<import('react').SetStateAction<Record<string, string>>>]} */
   const [errors, setErrors] = useState({})
+  const [submitError, setSubmitError] = useState('')
 
   useEffect(() => {
     if (!testCase) return
     setFormData(testCaseToFormData(testCase))
     setErrors({})
+    setSubmitError('')
   }, [testCase])
 
   const clearFieldError = useCallback((fieldName) => {
@@ -94,8 +109,9 @@ export default function EditModal({ testCase, onSave, onClose }) {
     (field, value) => {
       setFormData((prev) => ({ ...prev, [field]: value }))
       clearFieldError(field)
+      if (submitError) setSubmitError('')
     },
-    [clearFieldError],
+    [clearFieldError, submitError],
   )
 
   /**
@@ -115,6 +131,8 @@ export default function EditModal({ testCase, onSave, onClose }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!testCase) return
+    if (isSubmitting) return
+    setSubmitError('')
 
     const { isValid, errors: nextErrors } = validateTestCase(formData)
     if (!isValid) {
@@ -132,6 +150,9 @@ export default function EditModal({ testCase, onSave, onClose }) {
       'success' in resolved &&
       resolved.success === false
     ) {
+      if (resolved.error && typeof resolved.error === 'string') {
+        setSubmitError(resolved.error)
+      }
       if (resolved.errors && typeof resolved.errors === 'object') {
         setErrors(resolved.errors)
       }
@@ -156,8 +177,8 @@ export default function EditModal({ testCase, onSave, onClose }) {
         aria-label="Close modal overlay"
         onClick={onClose}
       />
-      <div className="relative bg-white rounded-2xl border border-orange-200 w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between gap-4 px-6 py-4 bg-orange-500 text-white shrink-0">
+      <div className="relative bg-white rounded-2xl border border-[#B0C0E0] w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between gap-4 px-6 py-4 bg-[#1A3263] text-white shrink-0">
           <h2
             id="edit-modal-title"
             className="text-xl font-semibold tracking-tight"
@@ -167,14 +188,22 @@ export default function EditModal({ testCase, onSave, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 w-10 h-10 rounded-lg text-white hover:text-orange-100 transition text-xl leading-none"
+            className="shrink-0 w-10 h-10 rounded-lg text-white hover:text-white/80 transition text-xl leading-none"
             aria-label="Close"
           >
             ×
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="text-stone-900 overflow-y-auto p-6 flex-1 min-h-0" noValidate>
+        <form onSubmit={handleSubmit} className="text-[#1A3263] overflow-y-auto p-6 flex-1 min-h-0" noValidate>
+          {submitError ? (
+            <div
+              className="mb-4 rounded-lg px-4 py-3 text-sm border-l-4 bg-red-50 border-red-500 text-red-800 border border-red-200"
+              role="alert"
+            >
+              {submitError}
+            </div>
+          ) : null}
           <div className="mb-4">
             <label className={labelClass} htmlFor="edit-testCaseId">
               Test Case ID
@@ -322,7 +351,7 @@ export default function EditModal({ testCase, onSave, onClose }) {
                 <label className={labelClass} htmlFor="edit-testSteps">
                   Test Steps
                 </label>
-                <p className="text-xs text-stone-500 mb-1">
+                <p className="text-xs text-[#5A6E9A] mb-1">
                   Number each step: 1. Open... 2. Click...
                 </p>
                 <textarea
@@ -405,20 +434,22 @@ export default function EditModal({ testCase, onSave, onClose }) {
           <div className={sectionCardClass}>
             <h3 className={sectionHeaderClass}>Tracking</h3>
             <div className="grid grid-cols-2 gap-4 p-4">
-              <div>
-                <label className={labelClass} htmlFor="edit-assignedTo">
-                  Assigned To
-                </label>
-                <input
-                  id="edit-assignedTo"
-                  name="assignedTo"
-                  type="text"
-                  value={formData.assignedTo}
-                  onChange={handleChange}
-                  className={inputClass}
-                  autoComplete="off"
-                />
-              </div>
+              {canAssign ? (
+                <div>
+                  <label className={labelClass} htmlFor="edit-assignedTo">
+                    Assigned To
+                  </label>
+                  <input
+                    id="edit-assignedTo"
+                    name="assignedTo"
+                    type="text"
+                    value={formData.assignedTo}
+                    onChange={handleChange}
+                    className={inputClass}
+                    autoComplete="off"
+                  />
+                </div>
+              ) : null}
               <div>
                 <label className={labelClass} htmlFor="edit-createdBy">
                   Created By
@@ -451,7 +482,7 @@ export default function EditModal({ testCase, onSave, onClose }) {
               <div>
                 <label className={labelClass} htmlFor="edit-executionDate">
                   Execution Date{' '}
-                  <span className="text-stone-500 font-normal">(optional)</span>
+                  <span className="text-[#5A6E9A] font-normal">(optional)</span>
                 </label>
                 <input
                   id="edit-executionDate"
@@ -516,15 +547,17 @@ export default function EditModal({ testCase, onSave, onClose }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-lg bg-white border border-orange-300 text-orange-600 font-semibold hover:bg-orange-50 transition"
+              disabled={isSubmitting}
+              className="px-5 py-2.5 rounded-lg bg-white border-[0.5px] border-[#B0C0E0] text-[#1A3263] font-semibold hover:bg-[#EEF2FB] hover:border-[#4169C4] transition"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold transition"
+              disabled={isSubmitting}
+              className="px-5 py-2.5 rounded-lg bg-[#1A3263] hover:bg-[#122247] text-white font-semibold transition disabled:bg-[#B0C0E0] disabled:text-[#8A9BBF] disabled:cursor-not-allowed"
             >
-              Save Changes
+              {isSubmitting ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>

@@ -193,11 +193,6 @@ export async function syncToGoogleSheets(testCases, accessToken = null) {
 }
 
 /**
- * Initiates Google OAuth2 sign-in using the browser redirect flow.
- * Uses VITE_GOOGLE_CLIENT_ID from env.
- * @returns {void}
- */
-/**
  * @param {string} id
  * @returns {boolean}
  */
@@ -206,6 +201,30 @@ function looksLikeGoogleOAuthClientId(id) {
   return /\.apps\.googleusercontent\.com$/i.test(s) && s.length > 30
 }
 
+/**
+ * Redirect URI for Google OAuth (implicit flow). Must match **exactly** one entry under
+ * Google Cloud Console → Credentials → OAuth client → Authorized redirect URIs.
+ *
+ * Set `VITE_GOOGLE_OAUTH_REDIRECT_URI` in production (e.g. https://yourapp.web.app/) if
+ * the auto value is wrong. When unset, uses the site origin with a trailing slash.
+ *
+ * @returns {string}
+ */
+export function getGoogleOAuthRedirectUri() {
+  if (typeof window === 'undefined') return ''
+  const fromEnv = import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI
+  if (fromEnv != null && String(fromEnv).trim() !== '') {
+    return String(fromEnv).trim()
+  }
+  const origin = window.location.origin
+  return `${origin}/`
+}
+
+/**
+ * Initiates Google OAuth2 sign-in (implicit flow). Uses `VITE_GOOGLE_CLIENT_ID` and
+ * `getGoogleOAuthRedirectUri()` for `redirect_uri`.
+ * @returns {void}
+ */
 export function initiateGoogleSignIn() {
   const raw = import.meta.env.VITE_GOOGLE_CLIENT_ID
   const clientId = raw == null ? '' : String(raw).trim()
@@ -224,18 +243,22 @@ export function initiateGoogleSignIn() {
         'Fix:\n' +
         '1. Open Google Cloud Console → APIs & Services → Credentials.\n' +
         '2. Create OAuth client ID → Application type: Web application.\n' +
-        '3. Authorized JavaScript origins: http://localhost:5173\n' +
-        '4. Authorized redirect URIs: http://localhost:5173/ (and http://127.0.0.1:5173/ if you use that URL)\n' +
+        '3. Authorized JavaScript origins: http://localhost:5173 (and production URL if deployed)\n' +
+        '4. Authorized redirect URIs: must match EXACTLY what the app sends (see .env.example).\n' +
+        '   For local dev add BOTH:\n' +
+        '   • http://localhost:5173/\n' +
+        '   • http://127.0.0.1:5173/\n' +
         '5. Copy the Client ID (ends with .apps.googleusercontent.com) into VITE_GOOGLE_CLIENT_ID in .env\n' +
         '6. Restart npm run dev.\n\n' +
-        'Error 401 invalid_client means Google does not recognize the client_id value.',
+        'Error 401 invalid_client means Google does not recognize the client_id value.\n' +
+        'Error 400 redirect_uri_mismatch means the redirect URI in Console does not match the app URL.',
     )
     return
   }
 
   if (typeof window === 'undefined') return
 
-  const redirectUri = `${window.location.origin}${window.location.pathname || '/'}`
+  const redirectUri = getGoogleOAuthRedirectUri()
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,

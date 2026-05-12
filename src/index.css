@@ -5,25 +5,34 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Orange & white — page base */
+/* Horizontal tab strip: hide scrollbar but keep touch scroll (Firefox + WebKit) */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Navy & white — page base */
 body {
-  background-color: #fff7ed;
-  color: #1c1917;
+  background-color: #eef2fb;
+  color: #1a3263;
   min-height: 100vh;
 }
 
-/* Custom scrollbar (orange tones) */
+/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #ffedd5;
+  background: #eef2fb;
 }
 ::-webkit-scrollbar-thumb {
-  background: #fdba74;
+  background: #b0c0e0;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #f97316;
+  background: #1a3263;
 }

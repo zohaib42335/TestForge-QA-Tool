@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRole } from '../hooks/useRole'
 import {
   DEFAULT_FORM_VALUES,
   ENVIRONMENT_OPTIONS,
@@ -50,13 +51,13 @@ function extractTemplateSlice(formData) {
 }
 
 const inputClass =
-  'bg-white border border-orange-300 text-stone-900 rounded-lg px-3 py-2 w-full focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition placeholder:text-stone-400'
+  'bg-white border-[0.5px] border-[#B0C0E0] text-[#1A3263] rounded-lg px-3 py-2 w-full focus:border-[#1A3263] focus:ring-2 focus:ring-[rgba(26,50,99,0.15)] outline-none transition placeholder:text-[#8A9BBF] hover:border-[#8A9BBF]'
 const inputErrorClass = ' border-red-400 bg-red-50'
-const labelClass = 'block text-sm text-stone-700 mb-1'
+const labelClass = 'block text-sm text-[#5A6E9A] mb-1'
 const sectionHeaderClass =
-  'text-xs uppercase tracking-widest text-orange-600 font-mono px-4 py-3 bg-orange-50 border-b border-orange-200'
+  'text-xs uppercase tracking-widest text-[#1A3263] font-mono px-4 py-3 bg-white border-b border-[#D6E0F5]'
 const sectionCardClass =
-  'bg-white rounded-xl mb-4 border border-orange-200 shadow-sm overflow-hidden'
+  'bg-white rounded-xl mb-4 border border-[#B0C0E0] shadow-sm overflow-hidden'
 
 /**
  * @param {string} name
@@ -90,9 +91,12 @@ export default function TestCaseForm({
   templateDefaults = {},
   onSaveAsTemplate,
 }) {
+  const { hasPermission } = useRole()
+  const canAssign = hasPermission('testcase_assign')
   const [formData, setFormData] = useState(getInitialFormData)
   /** @type {[Record<string, string>, import('react').Dispatch<import('react').SetStateAction<Record<string, string>>>]} */
   const [errors, setErrors] = useState({})
+  const [submitError, setSubmitError] = useState('')
 
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
   const [templateModalName, setTemplateModalName] = useState('')
@@ -117,6 +121,7 @@ export default function TestCaseForm({
       automationStatus: 'Manual',
     })
     setErrors({})
+    setSubmitError('')
   }, [templateApplyVersion, templateDefaults])
 
   useEffect(() => {
@@ -148,8 +153,9 @@ export default function TestCaseForm({
     (field, value) => {
       setFormData((prev) => ({ ...prev, [field]: value }))
       clearFieldError(field)
+      if (submitError) setSubmitError('')
     },
-    [clearFieldError],
+    [clearFieldError, submitError],
   )
 
   /**
@@ -166,6 +172,7 @@ export default function TestCaseForm({
   const resetForm = useCallback(() => {
     setFormData(getInitialFormData())
     setErrors({})
+    setSubmitError('')
   }, [])
 
   /**
@@ -174,6 +181,7 @@ export default function TestCaseForm({
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (isSubmitting) return
+    setSubmitError('')
 
     const { isValid, errors: nextErrors } = validateTestCase(formData)
     if (!isValid) {
@@ -190,6 +198,9 @@ export default function TestCaseForm({
       'success' in resolved &&
       resolved.success === false
     ) {
+      if (resolved.error && typeof resolved.error === 'string') {
+        setSubmitError(resolved.error)
+      }
       if (resolved.errors && typeof resolved.errors === 'object') {
         setErrors(resolved.errors)
       }
@@ -242,7 +253,15 @@ export default function TestCaseForm({
 
   return (
     <>
-    <form onSubmit={handleSubmit} className="text-stone-900" noValidate>
+    <form onSubmit={handleSubmit} className="text-[#1A3263]" noValidate data-tour="testcase-form">
+      {submitError ? (
+        <div
+          className="mb-4 rounded-lg px-4 py-3 text-sm border-l-4 bg-red-50 border-red-500 text-red-800 border border-red-200"
+          role="alert"
+        >
+          {submitError}
+        </div>
+      ) : null}
       {/* Section 1: Identification */}
       <div className={sectionCardClass}>
         <h3 className={sectionHeaderClass}>Identification</h3>
@@ -400,7 +419,7 @@ export default function TestCaseForm({
             <label className={labelClass} htmlFor="testSteps">
               Test Steps
             </label>
-            <p className="text-xs text-stone-500 mb-1">
+            <p className="text-xs text-[#5A6E9A] mb-1">
               Number each step: 1. Open... 2. Click...
             </p>
             <textarea
@@ -489,21 +508,23 @@ export default function TestCaseForm({
       <div className={sectionCardClass}>
         <h3 className={sectionHeaderClass}>Tracking</h3>
         <div className="grid grid-cols-2 gap-4 p-4">
-          <div>
-            <label className={labelClass} htmlFor="assignedTo">
-              Assigned To
-            </label>
-            <input
-              id="assignedTo"
-              name="assignedTo"
-              type="text"
-              value={formData.assignedTo}
-              onChange={handleChange}
-              disabled={disabled}
-              className={inputClass}
-              autoComplete="off"
-            />
-          </div>
+          {canAssign ? (
+            <div>
+              <label className={labelClass} htmlFor="assignedTo">
+                Assigned To
+              </label>
+              <input
+                id="assignedTo"
+                name="assignedTo"
+                type="text"
+                value={formData.assignedTo}
+                onChange={handleChange}
+                disabled={disabled}
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+          ) : null}
           <div>
             <label className={labelClass} htmlFor="createdBy">
               Created By
@@ -537,7 +558,7 @@ export default function TestCaseForm({
           </div>
           <div>
             <label className={labelClass} htmlFor="executionDate">
-              Execution Date <span className="text-stone-500 font-normal">(optional)</span>
+              Execution Date <span className="text-[#5A6E9A] font-normal">(optional)</span>
             </label>
             <input
               id="executionDate"
@@ -607,7 +628,7 @@ export default function TestCaseForm({
           type="button"
           onClick={openSaveTemplateModal}
           disabled={disabled}
-          className="w-full mt-4 py-3 rounded-lg text-sm font-semibold bg-white border border-orange-300 text-orange-600 hover:bg-orange-50 transition disabled:bg-orange-200 disabled:text-orange-400 disabled:cursor-not-allowed"
+          className="w-full mt-4 py-3 rounded-lg text-sm font-semibold bg-white border-[0.5px] border-[#B0C0E0] text-[#1A3263] hover:bg-[#EEF2FB] hover:border-[#4169C4] transition disabled:bg-[#B0C0E0] disabled:text-[#8A9BBF] disabled:cursor-not-allowed"
         >
           Save as Template
         </button>
@@ -616,7 +637,7 @@ export default function TestCaseForm({
       <button
         type="submit"
         disabled={disabled}
-        className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded-lg transition mt-4 disabled:bg-orange-200 disabled:text-orange-400 disabled:cursor-not-allowed"
+        className="w-full bg-[#1A3263] hover:bg-[#122247] active:bg-[#0E1A35] text-white font-semibold py-3 rounded-lg transition mt-4 disabled:bg-[#B0C0E0] disabled:text-[#8A9BBF] disabled:cursor-not-allowed"
       >
         {isSubmitting ? 'Saving…' : 'Create test case'}
       </button>
@@ -624,7 +645,7 @@ export default function TestCaseForm({
 
     {typeof onSaveAsTemplate === 'function' && templateModalOpen && (
       <div
-        className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-stone-900/40 px-4 py-16 sm:py-24"
+        className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-[rgba(26,50,99,0.25)] px-4 py-16 sm:py-24"
         role="dialog"
         aria-modal="true"
         aria-labelledby="save-template-heading"
@@ -635,15 +656,15 @@ export default function TestCaseForm({
           aria-label="Close dialog"
           onClick={closeSaveTemplateModal}
         />
-        <div className="relative z-[81] w-full max-w-md rounded-2xl border border-orange-200 bg-white p-6 shadow-xl">
+        <div className="relative z-[81] w-full max-w-md rounded-2xl border border-[#B0C0E0] bg-white p-6 shadow-xl">
           <h2
             id="save-template-heading"
-            className="text-lg font-semibold text-stone-900"
+            className="text-lg font-semibold text-[#1A3263]"
           >
             Save as template
           </h2>
-          <p className="mt-1 text-sm text-stone-500">
-            Saves current field values (except assignee, status, and IDs) to the Template Library in this browser.
+          <p className="mt-1 text-sm text-[#5A6E9A]">
+            Saves current field values (except assignee, status, and IDs) to your Template Library.
           </p>
           {templateModalError ? (
             <p className="mt-3 text-sm text-red-600" role="alert">
@@ -671,7 +692,7 @@ export default function TestCaseForm({
             </div>
             <div>
               <label className={labelClass} htmlFor="template-save-desc">
-                Description <span className="font-normal text-stone-400">(optional)</span>
+                Description <span className="font-normal text-[#8A9BBF]">(optional)</span>
               </label>
               <textarea
                 id="template-save-desc"
@@ -687,14 +708,14 @@ export default function TestCaseForm({
             <button
               type="button"
               onClick={closeSaveTemplateModal}
-              className="w-full rounded-lg border border-orange-200 bg-white py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-orange-50 sm:w-auto sm:px-4"
+              className="w-full rounded-lg border-[0.5px] border-[#B0C0E0] bg-white py-2.5 text-sm font-semibold text-[#5A6E9A] transition hover:bg-[#EEF2FB] sm:w-auto sm:px-4"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={confirmSaveTemplate}
-              className="w-full rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-600 sm:w-auto sm:px-4"
+              className="w-full rounded-lg bg-[#1A3263] py-2.5 text-sm font-semibold text-white transition hover:bg-[#122247] sm:w-auto sm:px-4"
             >
               Save template
             </button>

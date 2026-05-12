@@ -1,32 +1,117 @@
 rules_version = '2';
-
-// TestForge — user-scoped Firestore access.
-// users/{userId} — optional profile doc
-// users/{userId}/testCases/{docId}
-// users/{userId}/templates/{docId}
-// Only request.auth.uid == userId may read/write these paths.
-
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Workspace (legacy) role from users/{uid}
+    function workspaceRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function hasWorkspaceRole(roles) {
+      return isSignedIn() && workspaceRole() in roles;
+    }
+
+    // Helper: get caller's role in a project
+    function getRole(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
+    }
+
+    // Helper: check if caller has one of the allowed roles
+    function hasRole(projectId, roles) {
+      return request.auth != null && getRole(projectId) in roles;
+    }
+
+    function isOwnProject(projectId) {
+      return isSignedIn() && request.auth.uid == projectId;
+    }
+
+    // -----------------------------------------------------------------------
+    // User profile bootstrap (required during first sign-in)
+    // -----------------------------------------------------------------------
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, create, update: if isSelf(userId);
+      allow delete: if false;
 
-      match /testCases/{docId} {
-        allow read, write: if isOwner(userId);
+      // Per-user subcollections used by the app (templates, testRuns, testRunResults, etc.)
+      match /{subPath=**} {
+        allow read, write: if isSelf(userId);
+      }
+    }
+
+    match /projects/{projectId} {
+      allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']) || isOwnProject(projectId);
+      allow create: if isSignedIn() && projectId == request.auth.uid;
+      allow update: if hasRole(projectId, ['Owner','Admin']) || isOwnProject(projectId);
+      allow delete: if hasRole(projectId, ['Owner']);
+
+      match /members/{memberId} {
+        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']) || isSelf(memberId);
+        // Initial bootstrap: allow user to create their own Owner membership under their own project.
+        allow create: if isSelf(memberId) && isOwnProject(projectId);
+        allow update, delete: if hasRole(projectId, ['Owner','Admin']);
       }
 
-      match /templates/{docId} {
-        allow read, write: if isOwner(userId);
+      match /invites/{inviteId} {
+        allow read: if hasRole(projectId, ['Owner','Admin']);
+        allow create, update: if hasRole(projectId, ['Owner','Admin']);
+        allow delete: if false;
       }
+
+      match /testCases/{tcId} {
+        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
+        allow create, update: if hasRole(projectId, ['Owner','Admin','QA Lead','Member']);
+        allow delete: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+      }
+
+      match /testRuns/{runId} {
+        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
+        allow create: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+        allow update: if hasRole(projectId, ['Owner','Admin','QA Lead','Member']);
+        allow delete: if hasRole(projectId, ['Owner','Admin']);
+      }
+
+      match /bugs/{bugId} {
+        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
+        allow create, update: if hasRole(projectId, ['Owner','Admin','QA Lead','Member']);
+        allow delete: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+      }
+
+      match /notificationSettings/{docId} {
+        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
+        allow write: if hasRole(projectId, ['Owner','Admin']);
+      }
+
+      match /aiGenerationLogs/{logId} {
+        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+        allow write: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Shared workspace collections (legacy paths still used by UI)
+    // -----------------------------------------------------------------------
+    match /testCases/{docId} {
+      allow read: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member','Viewer']);
+      allow create, update: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member']);
+      allow delete: if hasWorkspaceRole(['Owner','Admin','QA Lead']);
+    }
+
+    match /activityLogs/{docId} {
+      allow read: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member','Viewer']);
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    match /comments/{docId} {
+      allow read: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member','Viewer']);
+      allow create, update, delete: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member']);
     }
   }
 }

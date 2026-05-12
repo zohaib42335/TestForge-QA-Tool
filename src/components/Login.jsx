@@ -7,8 +7,8 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { LogoStacked } from './Logo.jsx'
 
 const inputClass =
-  'bg-white border border-orange-300 text-stone-900 rounded-lg px-3 py-2.5 w-full focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition placeholder:text-stone-400'
-const labelClass = 'block text-sm text-stone-700 mb-1.5'
+  'bg-white border-[0.5px] border-[#B0C0E0] text-[#1A3263] rounded-lg px-3 py-2.5 w-full focus:border-[#1A3263] focus:ring-2 focus:ring-[rgba(26,50,99,0.15)] outline-none transition placeholder:text-[#8A9BBF] hover:border-[#8A9BBF]'
+const labelClass = 'block text-sm text-[#5A6E9A] mb-1.5'
 
 /**
  * @returns {import('react').JSX.Element}
@@ -25,9 +25,11 @@ export default function Login() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [registerName, setRegisterName] = useState('')
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState(/** @type {'signin' | 'register'} */ ('signin'))
   const [formHint, setFormHint] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   /**
    * @param {import('react').FormEvent} e
@@ -44,12 +46,19 @@ export default function Login() {
       setFormHint('Please enter your password.')
       return
     }
+    if (mode === 'register') {
+      const n = registerName.trim()
+      if (!n) {
+        setFormHint('Please enter your name.')
+        return
+      }
+    }
     setBusy(true)
     try {
       if (mode === 'signin') {
         await signInWithEmailPassword(email, password)
       } else {
-        await registerWithEmailPassword(email, password)
+        await registerWithEmailPassword(email, password, registerName.trim())
       }
     } finally {
       setBusy(false)
@@ -73,16 +82,16 @@ export default function Login() {
   const disableForm = busy || !!configError
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-orange-50 text-stone-900">
+    <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-[#EEF2FB] text-[#1A3263]">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-3">
             <LogoStacked size="lg" />
           </div>
-          <p className="text-sm text-stone-500 mt-1">Sign in to manage test cases</p>
+          <p className="text-sm text-[#5A6E9A] mt-1">Sign in to manage test cases</p>
         </div>
 
-        <div className="bg-white border border-orange-200 rounded-2xl p-8 shadow-sm">
+        <div className="bg-white border border-[#B0C0E0] rounded-2xl p-8 shadow-sm">
           {(showError || formHint) && (
             <div
               className={`mb-6 rounded-lg px-4 py-3 text-sm border-l-4 ${
@@ -100,7 +109,7 @@ export default function Login() {
             type="button"
             onClick={handleGoogle}
             disabled={disableForm}
-            className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-lg border border-orange-300 bg-white text-stone-900 font-semibold text-sm hover:bg-orange-50 transition disabled:bg-orange-200 disabled:text-orange-400 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-lg border-[0.5px] border-[#B0C0E0] bg-white text-[#1A3263] font-semibold text-sm hover:bg-[#EEF2FB] hover:border-[#4169C4] transition disabled:bg-[#B0C0E0] disabled:text-[#8A9BBF] disabled:cursor-not-allowed"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden>
               <path
@@ -125,14 +134,14 @@ export default function Login() {
 
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-orange-200" />
+              <div className="w-full border-t border-[#B0C0E0]" />
             </div>
             <div className="relative flex justify-center text-xs uppercase tracking-wider">
-              <span className="bg-white px-3 text-stone-500 font-mono">or</span>
+              <span className="bg-white px-3 text-[#5A6E9A] font-mono">or</span>
             </div>
           </div>
 
-          <div className="flex rounded-lg border border-orange-200 p-0.5 mb-4 bg-orange-50/50">
+          <div className="flex rounded-lg border border-[#B0C0E0] p-0.5 mb-4 bg-[#EEF2FB]/80">
             <button
               type="button"
               onClick={() => {
@@ -142,8 +151,8 @@ export default function Login() {
               }}
               className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
                 mode === 'signin'
-                  ? 'bg-orange-500 text-white'
-                  : 'text-stone-600 hover:text-orange-600'
+                  ? 'bg-[#1A3263] text-white'
+                  : 'text-[#5A6E9A] hover:text-[#1A3263]'
               }`}
             >
               Sign in
@@ -157,15 +166,32 @@ export default function Login() {
               }}
               className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
                 mode === 'register'
-                  ? 'bg-orange-500 text-white'
-                  : 'text-stone-600 hover:text-orange-600'
+                  ? 'bg-[#1A3263] text-white'
+                  : 'text-[#5A6E9A] hover:text-[#1A3263]'
               }`}
             >
-              Create account
+              Register
             </button>
           </div>
 
           <form onSubmit={handleEmailSubmit} className="space-y-4" noValidate>
+            {mode === 'register' && (
+              <div>
+                <label className={labelClass} htmlFor="login-name">
+                  Name
+                </label>
+                <input
+                  id="login-name"
+                  type="text"
+                  autoComplete="name"
+                  value={registerName}
+                  onChange={(e) => setRegisterName(e.target.value)}
+                  disabled={disableForm}
+                  className={inputClass}
+                  required
+                />
+              </div>
+            )}
             <div>
               <label className={labelClass} htmlFor="login-email">
                 Email
@@ -185,42 +211,45 @@ export default function Login() {
               <label className={labelClass} htmlFor="login-password">
                 Password
               </label>
-              <input
-                id="login-password"
-                type="password"
-                autoComplete={
-                  mode === 'signin' ? 'current-password' : 'new-password'
-                }
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={disableForm}
-                className={inputClass}
-                required
-                minLength={6}
-              />
+              <div className="relative">
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={disableForm}
+                  className={`${inputClass} pr-11`}
+                  required
+                  minLength={6}
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-[#5A6E9A] hover:bg-[#EEF2FB] hover:text-[#1A3263]"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
               {mode === 'register' && (
-                <p className="text-xs text-stone-500 mt-1">
-                  Minimum 6 characters (Firebase requirement).
-                </p>
+                <p className="text-xs text-[#5A6E9A] mt-1">Minimum 6 characters</p>
               )}
             </div>
             <button
               type="submit"
               disabled={disableForm}
-              className="w-full py-3 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm transition disabled:bg-orange-200 disabled:text-orange-400 disabled:cursor-not-allowed"
+              className="w-full py-3 rounded-lg bg-[#1A3263] hover:bg-[#122247] text-white font-semibold text-sm transition disabled:bg-[#B0C0E0] disabled:text-[#8A9BBF] disabled:cursor-not-allowed"
             >
               {busy
                 ? 'Please wait…'
                 : mode === 'signin'
                   ? 'Sign in with email'
-                  : 'Create account'}
+                  : 'Register'}
             </button>
           </form>
         </div>
-
-        <p className="text-center text-xs text-stone-500 mt-6">
-          Step 1: Authentication only — test data still uses local storage until Step 2.
-        </p>
       </div>
     </div>
   )
