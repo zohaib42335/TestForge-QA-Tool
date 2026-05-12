@@ -1322,14 +1322,36 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
     if (typeof window === 'undefined') return null
     if (!emailLower) return null
     const sp = new URLSearchParams(window.location.search || '')
-    const inviteId = String(sp.get('invite') ?? '').trim()
+    const inviteTokenOrId = String(sp.get('invite') ?? '').trim()
     const projectId = String(sp.get('project') ?? '').trim()
-    if (!inviteId || !projectId) return null
+    if (!inviteTokenOrId || !projectId) return null
     try {
-      const inviteRef = doc(db, `projects/${projectId}/invites/${inviteId}`)
-      const inviteSnap = await getDoc(inviteRef)
-      if (!inviteSnap.exists()) return null
-      const data = inviteSnap.data() || {}
+      // Support both forms:
+      // - invite=<inviteDocId> (legacy)
+      // - invite=<inviteToken> (current copy-link flow)
+      let inviteId = ''
+      let data = null
+
+      const directRef = doc(db, `projects/${projectId}/invites/${inviteTokenOrId}`)
+      const directSnap = await getDoc(directRef)
+      if (directSnap.exists()) {
+        inviteId = directSnap.id
+        data = directSnap.data() || {}
+      } else {
+        const byToken = await getDocs(
+          query(
+            collection(db, `projects/${projectId}/invites`),
+            where('token', '==', inviteTokenOrId),
+            limit(1),
+          ),
+        )
+        if (!byToken.empty) {
+          inviteId = byToken.docs[0].id
+          data = byToken.docs[0].data() || {}
+        }
+      }
+      if (!inviteId || !data) return null
+
       const status = String(data.status ?? '')
       const invitedEmail = String(data.email ?? '').trim().toLowerCase()
       if (status !== 'pending') return null
