@@ -1402,14 +1402,22 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
         ? String(existing.role)
         : 'Member'
     const effectiveRole = inviteContext?.role || existingRole
+    const effectiveProjectId = inviteContext?.projectId || String(existing.projectId ?? '').trim() || uid
 
-    if (effectiveRole !== existingRole) {
-      await setDoc(userRef, { role: effectiveRole }, { merge: true })
+    if (effectiveRole !== existingRole || effectiveProjectId !== String(existing.projectId ?? '').trim()) {
+      await setDoc(
+        userRef,
+        {
+          role: effectiveRole,
+          projectId: effectiveProjectId,
+        },
+        { merge: true },
+      )
     }
 
     // Best-effort RBAC bootstrap.
     try {
-      const bootstrapProjectId = inviteContext?.projectId || uid
+      const bootstrapProjectId = effectiveProjectId
       const memberRef = doc(db, `projects/${bootstrapProjectId}/members/${uid}`)
       const projectRef = doc(db, `projects/${bootstrapProjectId}`)
       const bootstrapBatch = writeBatch(db)
@@ -1464,6 +1472,7 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
   // - via invite => assigned invite role
   // - otherwise => Owner
   const role = inviteContext?.role || 'Owner'
+  const projectId = inviteContext?.projectId || uid
 
   const fromRegistration =
     options.initialDisplayName != null && String(options.initialDisplayName).trim() !== ''
@@ -1480,6 +1489,7 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
     email: firebaseUser.email ?? '',
     displayName,
     role,
+    projectId,
     createdDate: new Date().toISOString(),
     assignedBy: 'system',
     photoURL: firebaseUser.photoURL ?? null,
@@ -1490,7 +1500,7 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
   // Best-effort RBAC bootstrap for project-based membership model.
   // If security rules block this (common during migration), we still allow login.
   try {
-    const bootstrapProjectId = inviteContext?.projectId || uid
+    const bootstrapProjectId = projectId
     const projectRef = doc(db, `projects/${bootstrapProjectId}`)
     const memberRef = doc(db, `projects/${bootstrapProjectId}/members/${uid}`)
     const bootstrapBatch = writeBatch(db)

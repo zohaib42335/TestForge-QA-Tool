@@ -335,11 +335,15 @@ function AppAuthenticated() {
 
   const showSyncMenu = canExport
   const showDataMenu = canImport || canDelete
+  const activeProjectId =
+    userProfile && typeof userProfile.projectId === 'string' && userProfile.projectId.trim() !== ''
+      ? userProfile.projectId.trim()
+      : (user?.uid ?? null)
   const isUnauthorizedPage =
     typeof window !== 'undefined' && window.location.pathname === '/unauthorized'
 
   return (
-    <RoleProvider projectId={user?.uid ?? null}>
+    <RoleProvider projectId={activeProjectId}>
       {isUnauthorizedPage ? (
         <Unauthorized />
       ) : (
@@ -456,26 +460,26 @@ function AppAuthenticated() {
             />
           )}
           {activeTab === 'team' && (
-            <TeamManager projectId={user?.uid ?? 'workspace-default'} />
+            <TeamManager projectId={activeProjectId ?? 'workspace-default'} />
           )}
           {activeTab === 'activity' && (isAdmin || isQALead) && <ActivityLog />}
           {activeTab === 'bugs' && (
             openBugDocId ? (
               <BugDetail
-                projectId={user?.uid ?? 'workspace-default'}
+                projectId={activeProjectId ?? 'workspace-default'}
                 bugDocId={openBugDocId}
                 onBack={() => setOpenBugDocId(null)}
                 onDeleted={() => setOpenBugDocId(null)}
               />
             ) : (
               <BugTracker
-                projectId={user?.uid ?? 'workspace-default'}
+                projectId={activeProjectId ?? 'workspace-default'}
                 onOpenDetail={(docId) => setOpenBugDocId(docId)}
               />
             )
           )}
           {activeTab === 'settings' && (
-            <ProjectSettings projectId={user?.uid ?? 'workspace-default'} />
+            <ProjectSettings projectId={activeProjectId ?? 'workspace-default'} />
           )}
         </div>
 
