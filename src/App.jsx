@@ -32,6 +32,7 @@ import { useTemplates } from './hooks/useTemplates.js'
 import Unauthorized from './pages/Unauthorized'
 
 const VIEWER_BANNER_DISMISSED_KEY = 'testforge_viewer_banner_dismissed'
+const INVITE_JOIN_NOTICE_KEY = 'testforge_invite_join_notice'
 
 function RoleReadOnlyBanner() {
   const { userRole } = useRole()
@@ -143,6 +144,7 @@ function AppAuthenticated() {
   const [importToast, setImportToast] = useState(null)
   /** @type {[null | { text: string, kind: 'success' | 'error' }, import('react').Dispatch<import('react').SetStateAction<null | { text: string, kind: 'success' | 'error' }>>]} */
   const [templateToast, setTemplateToast] = useState(null)
+  const [inviteJoinToast, setInviteJoinToast] = useState('')
 
   const [templateApplyVersion, setTemplateApplyVersion] = useState(0)
   const [templateDefaultsState, setTemplateDefaultsState] = useState(
@@ -193,6 +195,27 @@ function AppAuthenticated() {
     const t = setTimeout(() => setTemplateToast(null), 3500)
     return () => clearTimeout(t)
   }, [templateToast])
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(INVITE_JOIN_NOTICE_KEY)
+      if (!raw) return
+      sessionStorage.removeItem(INVITE_JOIN_NOTICE_KEY)
+      const parsed = JSON.parse(raw)
+      const role = parsed && typeof parsed.role === 'string' ? parsed.role : ''
+      if (role) {
+        setInviteJoinToast(`You joined the project as ${role}.`)
+      }
+    } catch {
+      // ignore malformed storage payload
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!inviteJoinToast) return
+    const t = setTimeout(() => setInviteJoinToast(''), 5000)
+    return () => clearTimeout(t)
+  }, [inviteJoinToast])
 
   const handleFormSubmit = useCallback(
     async (formData) => {
@@ -489,6 +512,14 @@ function AppAuthenticated() {
             role="status"
           >
             {templateToast.text}
+          </div>
+        )}
+        {inviteJoinToast && (
+          <div
+            className="fixed bottom-20 right-6 z-[76] max-w-sm w-[88vw] sm:w-auto rounded-lg border border-green-200 border-l-4 border-l-green-500 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-md"
+            role="status"
+          >
+            {inviteJoinToast}
           </div>
         )}
           </div>

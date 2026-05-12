@@ -1307,28 +1307,95 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
   }
 
   const uid = firebaseUser.uid.trim()
+  const emailLower = String(firebaseUser.email ?? '').trim().toLowerCase()
   const userRef = doc(db, COL_USERS, uid)
   const userSnap = await getDoc(userRef)
+
+  /**
+   * Resolve invite context from URL:
+   *   /?invite=<inviteId>&project=<projectId>
+   * and validate it against pending invite + matching email.
+   *
+   * @returns {Promise<null | { projectId: string, inviteId: string, role: string }>}
+   */
+  const resolveInviteContext = async () => {
+    if (typeof window === 'undefined') return null
+    if (!emailLower) return null
+    const sp = new URLSearchParams(window.location.search || '')
+    const inviteId = String(sp.get('invite') ?? '').trim()
+    const projectId = String(sp.get('project') ?? '').trim()
+    if (!inviteId || !projectId) return null
+    try {
+      const inviteRef = doc(db, `projects/${projectId}/invites/${inviteId}`)
+      const inviteSnap = await getDoc(inviteRef)
+      if (!inviteSnap.exists()) return null
+      const data = inviteSnap.data() || {}
+      const status = String(data.status ?? '')
+      const invitedEmail = String(data.email ?? '').trim().toLowerCase()
+      if (status !== 'pending') return null
+      if (invitedEmail !== emailLower) return null
+      const rawRole = String(data.role ?? 'Member')
+      const role =
+        rawRole === 'Owner' ||
+        rawRole === 'Admin' ||
+        rawRole === 'QA Lead' ||
+        rawRole === 'Member' ||
+        rawRole === 'Viewer'
+          ? rawRole
+          : 'Member'
+      return { projectId, inviteId, role }
+    } catch {
+      return null
+    }
+  }
+
+  const setInviteJoinNotice = (roleValue) => {
+    if (typeof window === 'undefined') return
+    const roleText = String(roleValue ?? '').trim()
+    if (!roleText) return
+    try {
+      sessionStorage.setItem(
+        'testforge_invite_join_notice',
+        JSON.stringify({
+          role: roleText,
+          at: Date.now(),
+        }),
+      )
+    } catch {
+      // no-op
+    }
+  }
+
+  const inviteContext = await resolveInviteContext()
 
   const docExists = typeof userSnap.exists === 'function' ? userSnap.exists() : userSnap.exists
   if (docExists) {
     const existing = { id: userSnap.id, ...userSnap.data() }
-    const needsOwnerRole = String(existing.role ?? '') !== 'Owner'
-    if (needsOwnerRole) {
-      // Backfill legacy accounts created before Owner bootstrap.
-      await setDoc(userRef, { role: 'Owner' }, { merge: true })
+    const existingRole =
+      String(existing.role ?? '') === 'Owner' ||
+      String(existing.role ?? '') === 'Admin' ||
+      String(existing.role ?? '') === 'QA Lead' ||
+      String(existing.role ?? '') === 'Member' ||
+      String(existing.role ?? '') === 'Viewer'
+        ? String(existing.role)
+        : 'Member'
+    const effectiveRole = inviteContext?.role || existingRole
+
+    if (effectiveRole !== existingRole) {
+      await setDoc(userRef, { role: effectiveRole }, { merge: true })
     }
-    // Best-effort RBAC bootstrap for newer project-based membership model.
-    // Do not block sign-in if rules disallow these writes.
+
+    // Best-effort RBAC bootstrap.
     try {
-      const memberRef = doc(db, `projects/${uid}/members/${uid}`)
-      const projectRef = doc(db, `projects/${uid}`)
+      const bootstrapProjectId = inviteContext?.projectId || uid
+      const memberRef = doc(db, `projects/${bootstrapProjectId}/members/${uid}`)
+      const projectRef = doc(db, `projects/${bootstrapProjectId}`)
       const bootstrapBatch = writeBatch(db)
       bootstrapBatch.set(
         projectRef,
         {
-          creatorUid: uid,
-          ownerUid: uid,
+          creatorUid: inviteContext ? inviteContext.projectId : uid,
+          ownerUid: inviteContext ? inviteContext.projectId : uid,
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -1340,24 +1407,40 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
           email: firebaseUser.email ?? '',
           displayName:
             existing.displayName != null ? String(existing.displayName) : firebaseUser.displayName ?? '',
-          role: 'Owner',
+          role: effectiveRole,
           joinedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true },
       )
+      if (inviteContext) {
+        const inviteRef = doc(db, `projects/${inviteContext.projectId}/invites/${inviteContext.inviteId}`)
+        bootstrapBatch.set(
+          inviteRef,
+          {
+            status: 'accepted',
+            acceptedBy: uid,
+            acceptedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
       await bootstrapBatch.commit()
+      if (inviteContext) setInviteJoinNotice(effectiveRole)
     } catch (err) {
       console.warn('[firestore] RBAC bootstrap skipped for existing profile:', err)
     }
     return {
       ...existing,
-      role: 'Owner',
+      role: effectiveRole,
     }
   }
 
-  // Each new signup should be project Owner for their personal workspace.
-  const role = 'Owner'
+  // New signup role:
+  // - via invite => assigned invite role
+  // - otherwise => Owner
+  const role = inviteContext?.role || 'Owner'
 
   const fromRegistration =
     options.initialDisplayName != null && String(options.initialDisplayName).trim() !== ''
@@ -1384,14 +1467,15 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
   // Best-effort RBAC bootstrap for project-based membership model.
   // If security rules block this (common during migration), we still allow login.
   try {
-    const projectRef = doc(db, `projects/${uid}`)
-    const memberRef = doc(db, `projects/${uid}/members/${uid}`)
+    const bootstrapProjectId = inviteContext?.projectId || uid
+    const projectRef = doc(db, `projects/${bootstrapProjectId}`)
+    const memberRef = doc(db, `projects/${bootstrapProjectId}/members/${uid}`)
     const bootstrapBatch = writeBatch(db)
     bootstrapBatch.set(
       projectRef,
       {
-        creatorUid: uid,
-        ownerUid: uid,
+        creatorUid: inviteContext ? inviteContext.projectId : uid,
+        ownerUid: inviteContext ? inviteContext.projectId : uid,
         name: displayName ? `${displayName}'s Project` : 'My Project',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -1404,14 +1488,28 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
         uid,
         email: firebaseUser.email ?? '',
         displayName,
-        role: 'Owner',
+        role,
         joinedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     )
+    if (inviteContext) {
+      const inviteRef = doc(db, `projects/${inviteContext.projectId}/invites/${inviteContext.inviteId}`)
+      bootstrapBatch.set(
+        inviteRef,
+        {
+          status: 'accepted',
+          acceptedBy: uid,
+          acceptedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      )
+    }
     await bootstrapBatch.commit()
+    if (inviteContext) setInviteJoinNotice(role)
   } catch (err) {
     console.warn('[firestore] RBAC bootstrap skipped for new profile:', err)
   }
