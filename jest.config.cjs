@@ -14,6 +14,7 @@ module.exports = {
   moduleNameMapper: {
     '\\.(css|less|scss)$': 'identity-obj-proxy',
     '\\.(svg|png|jpg|jpeg|gif|webp)$': '<rootDir>/src/__tests__/fileMock.js',
+    '^.*[\\\\/]firebase[\\\\/]config\\.js$': '<rootDir>/src/__tests__/mocks/firebaseConfig.js',
   },
 }
 

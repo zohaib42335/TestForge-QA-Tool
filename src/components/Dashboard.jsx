@@ -20,6 +20,7 @@ import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestor
 import { AIGeneratorContext } from '../context/AIGeneratorContext.jsx'
 import { getDb } from '../firebase/firestore.js'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useProject } from '../contexts/ProjectContext'
 
 /**
  * @param {string|undefined|null} dateString
@@ -186,15 +187,19 @@ function priorityBadge(p) {
 export default function Dashboard({ testCases, loading = false, error = '', onNavigate, canCreate = true }) {
   const list = Array.isArray(testCases) ? testCases : []
   const { user } = useAuth()
+  const { projectId } = useProject()
 
   // Open bugs count — live subscription so it updates when bugs are created/changed
   const [openBugsCount, setOpenBugsCount] = useState(0)
   useEffect(() => {
-    const projectId = user?.uid
-    if (!projectId) return
+    const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+    if (!pid) {
+      setOpenBugsCount(0)
+      return
+    }
     const db = getDb()
     if (!db) return
-    const col = collection(db, `projects/${projectId}/bugs`)
+    const col = collection(db, `projects/${pid}/bugs`)
     const q = query(col, where('status', '==', 'Open'))
     const unsub = onSnapshot(
       q,
@@ -202,7 +207,7 @@ export default function Dashboard({ testCases, loading = false, error = '', onNa
       () => { /* non-critical, ignore errors */ },
     )
     return () => unsub()
-  }, [user?.uid])
+  }, [projectId])
 
   // Fetch the latest 3 AI generation log entries for the activity feed
   const aiCtx = useContext(AIGeneratorContext)

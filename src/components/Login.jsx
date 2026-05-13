@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { LogoStacked } from './Logo.jsx'
 import { capturePendingInviteFromUrl } from '../utils/pendingInviteStorage.js'
@@ -12,9 +13,10 @@ const inputClass =
 const labelClass = 'block text-sm text-[#5A6E9A] mb-1.5'
 
 /**
+ * @param {{ defaultMode?: 'signin' | 'register' }} [props]
  * @returns {import('react').JSX.Element}
  */
-export default function Login() {
+export default function Login({ defaultMode = 'signin' }) {
   const {
     configError,
     authError,
@@ -28,7 +30,10 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [registerName, setRegisterName] = useState('')
   const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState(/** @type {'signin' | 'register'} */ ('signin'))
+  const [mode, setMode] = useState(
+    /** @type {'signin' | 'register'} */ (defaultMode === 'register' ? 'register' : 'signin'),
+  )
+  const showModeToggle = defaultMode !== 'register'
   const [formHint, setFormHint] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
@@ -146,38 +151,40 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="flex rounded-lg border border-[#B0C0E0] p-0.5 mb-4 bg-[#EEF2FB]/80">
-            <button
-              type="button"
-              onClick={() => {
-                clearAuthError()
-                setFormHint('')
-                setMode('signin')
-              }}
-              className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
-                mode === 'signin'
-                  ? 'bg-[#1A3263] text-white'
-                  : 'text-[#5A6E9A] hover:text-[#1A3263]'
-              }`}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                clearAuthError()
-                setFormHint('')
-                setMode('register')
-              }}
-              className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
-                mode === 'register'
-                  ? 'bg-[#1A3263] text-white'
-                  : 'text-[#5A6E9A] hover:text-[#1A3263]'
-              }`}
-            >
-              Register
-            </button>
-          </div>
+          {showModeToggle ? (
+            <div className="flex rounded-lg border border-[#B0C0E0] p-0.5 mb-4 bg-[#EEF2FB]/80">
+              <button
+                type="button"
+                onClick={() => {
+                  clearAuthError()
+                  setFormHint('')
+                  setMode('signin')
+                }}
+                className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
+                  mode === 'signin'
+                    ? 'bg-[#1A3263] text-white'
+                    : 'text-[#5A6E9A] hover:text-[#1A3263]'
+                }`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearAuthError()
+                  setFormHint('')
+                  setMode('register')
+                }}
+                className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
+                  mode === 'register'
+                    ? 'bg-[#1A3263] text-white'
+                    : 'text-[#5A6E9A] hover:text-[#1A3263]'
+                }`}
+              >
+                Register
+              </button>
+            </div>
+          ) : null}
 
           <form onSubmit={handleEmailSubmit} className="space-y-4" noValidate>
             {mode === 'register' && (
@@ -254,6 +261,24 @@ export default function Login() {
                   : 'Register'}
             </button>
           </form>
+
+          <p className="mt-6 text-center text-sm text-[#5A6E9A]">
+            {defaultMode === 'register' ? (
+              <>
+                Already have an account?{' '}
+                <Link to="/login" className="font-semibold text-[#1A3263] hover:underline">
+                  Sign in
+                </Link>
+              </>
+            ) : (
+              <>
+                Need an account?{' '}
+                <Link to="/signup" className="font-semibold text-[#1A3263] hover:underline">
+                  Create one
+                </Link>
+              </>
+            )}
+          </p>
         </div>
       </div>
     </div>

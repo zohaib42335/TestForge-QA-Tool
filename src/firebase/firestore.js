@@ -7,6 +7,7 @@
 import {
   addDoc,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -32,13 +33,25 @@ import {
 import {
   COL_ACTIVITY_LOGS,
   COL_COMMENTS,
-  COL_TEST_CASES_ROOT,
+  COL_PROJECTS,
   COL_USERS,
   SCHEMA_VERSION,
   SUB_TEMPLATES,
   SUB_TEST_RUN_RESULTS,
   SUB_TEST_RUNS,
 } from './schema.js'
+
+/**
+ * Project-scoped test cases: `projects/{projectId}/testCases`.
+ * @param {import('firebase/firestore').Firestore} db
+ * @param {string|null|undefined} projectId
+ * @returns {import('firebase/firestore').CollectionReference|null}
+ */
+function testCasesCollectionRef(db, projectId) {
+  const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+  if (!pid) return null
+  return collection(db, COL_PROJECTS, pid, 'testCases')
+}
 
 /**
  * @typedef {Object} ServiceResult
@@ -345,11 +358,12 @@ function mapTemplateDoc(data, docId) {
 }
 
 /**
- * Reads all workspace test cases (shared library), newest `updatedAt` first.
+ * Reads all project test cases, newest `updatedAt` first.
  * @param {string} userId - Firebase Auth uid (required so only signed-in callers hit Firestore)
+ * @param {string|null|undefined} projectId - Firestore workspace id (`users.{projectId}`)
  * @returns {Promise<ServiceResult & { data?: TestCaseFirestore[] }>}
  */
-export async function getTestCases(userId) {
+export async function getTestCases(userId, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
 
@@ -362,8 +376,12 @@ export async function getTestCases(userId) {
     }
   }
 
+  const col = testCasesCollectionRef(db, projectId)
+  if (!col) {
+    return { success: true, data: [] }
+  }
+
   try {
-    const col = collection(db, COL_TEST_CASES_ROOT)
     const q = query(col, orderBy('updatedAt', 'desc'))
     const snap = await getDocs(q)
     const items = snap.docs.map((d) => mapTestCaseDoc(d.data(), d.id))
@@ -380,19 +398,21 @@ export async function getTestCases(userId) {
  * Intended for export/sync flows where a snapshot listener is unnecessary.
  *
  * @param {string} userId
+ * @param {string|null|undefined} [projectId]
  * @returns {Promise<ServiceResult & { data?: TestCaseFirestore[] }>}
  */
-export async function getTestCasesOnce(userId) {
-  return getTestCases(userId)
+export async function getTestCasesOnce(userId, projectId) {
+  return getTestCases(userId, projectId)
 }
 
 /**
  * Creates a new test case document. Returns the new Firestore document id.
  * @param {string} userId
  * @param {Record<string, unknown>} payload - Field values (strings recommended)
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult & { id?: string }>}
  */
-export async function addTestCase(userId, payload) {
+export async function addTestCase(userId, payload, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
 
@@ -401,6 +421,15 @@ export async function addTestCase(userId, payload) {
     return {
       success: false,
       error: 'Firebase is not configured or Firestore failed to initialize.',
+      code: 'failed-precondition',
+    }
+  }
+
+  const col = testCasesCollectionRef(db, projectId)
+  if (!col) {
+    return {
+      success: false,
+      error: 'Project is required to save test cases.',
       code: 'failed-precondition',
     }
   }
@@ -414,7 +443,6 @@ export async function addTestCase(userId, payload) {
       updatedAt: serverTimestamp(),
     })
 
-    const col = collection(db, COL_TEST_CASES_ROOT)
     const ref = await addDoc(col, body)
     return { success: true, id: ref.id }
   } catch (err) {
@@ -429,9 +457,10 @@ export async function addTestCase(userId, payload) {
  * @param {string} userId
  * @param {string} docId - Firestore document id (**not** the human `testCaseId` unless you used it as doc id)
  * @param {Record<string, unknown>} partial
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult>}
  */
-export async function updateTestCase(userId, docId, partial) {
+export async function updateTestCase(userId, docId, partial, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
   if (typeof docId !== 'string' || docId.trim() === '') {
@@ -451,8 +480,17 @@ export async function updateTestCase(userId, docId, partial) {
     }
   }
 
+  const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+  if (!pid) {
+    return {
+      success: false,
+      error: 'Project is required to update test cases.',
+      code: 'failed-precondition',
+    }
+  }
+
   try {
-    const ref = doc(db, COL_TEST_CASES_ROOT, docId)
+    const ref = doc(db, COL_PROJECTS, pid, 'testCases', docId)
     const body = stripUndefined({
       ...partial,
       updatedAt: serverTimestamp(),
@@ -470,9 +508,10 @@ export async function updateTestCase(userId, docId, partial) {
  * Deletes a test case document.
  * @param {string} userId
  * @param {string} docId - Firestore document id
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult>}
  */
-export async function deleteTestCase(userId, docId) {
+export async function deleteTestCase(userId, docId, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
   if (typeof docId !== 'string' || docId.trim() === '') {
@@ -492,8 +531,17 @@ export async function deleteTestCase(userId, docId) {
     }
   }
 
+  const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+  if (!pid) {
+    return {
+      success: false,
+      error: 'Project is required to delete test cases.',
+      code: 'failed-precondition',
+    }
+  }
+
   try {
-    const ref = doc(db, COL_TEST_CASES_ROOT, docId)
+    const ref = doc(db, COL_PROJECTS, pid, 'testCases', docId)
     await deleteDoc(ref)
     return { success: true }
   } catch (err) {
@@ -510,9 +558,10 @@ export async function deleteTestCase(userId, docId) {
  * @param {string} userId - Firebase Auth uid (must be signed in)
  * @param {string[]} docIds - Firestore document IDs
  * @param {string} newStatus - Pass | Fail | Blocked | Not Run | Not Executed (`Not Run` is stored as `Not Executed`)
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult>}
  */
-export async function bulkUpdateStatus(userId, docIds, newStatus) {
+export async function bulkUpdateStatus(userId, docIds, newStatus, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
 
@@ -541,6 +590,15 @@ export async function bulkUpdateStatus(userId, docIds, newStatus) {
     }
   }
 
+  const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+  if (!pid) {
+    return {
+      success: false,
+      error: 'Project is required to bulk-update test cases.',
+      code: 'failed-precondition',
+    }
+  }
+
   const BATCH_LIMIT = 500
   /** @type {string[][]} */
   const chunks = []
@@ -554,7 +612,7 @@ export async function bulkUpdateStatus(userId, docIds, newStatus) {
     for (const chunk of chunks) {
       const batch = writeBatch(db)
       for (const id of chunk) {
-        const ref = doc(db, COL_TEST_CASES_ROOT, id)
+        const ref = doc(db, COL_PROJECTS, pid, 'testCases', id)
         batch.update(ref, {
           status: normalized,
           updatedDate: iso,
@@ -572,16 +630,15 @@ export async function bulkUpdateStatus(userId, docIds, newStatus) {
 }
 
 /**
- * Duplicates a test case into a new Firestore document in the shared `testCases` collection.
- * Assigns the next sequential `TC-###` id, prefixes the title with "Copy of ", resets status
- * to `Not Executed` (aligned with app status options), and sets `createdBy` / timestamps.
+ * Duplicates a test case into a new Firestore document under the project.
  *
  * @param {string} userId - Firebase Auth uid
  * @param {Record<string, unknown> & { id?: string }} testCase - Source row (must include `id`)
  * @param {string} currentUserName - Display name or email for `createdBy`
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult & { id?: string, testCaseId?: string }>}
  */
-export async function duplicateTestCase(userId, testCase, currentUserName) {
+export async function duplicateTestCase(userId, testCase, currentUserName, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
 
@@ -602,8 +659,16 @@ export async function duplicateTestCase(userId, testCase, currentUserName) {
     }
   }
 
+  const col = testCasesCollectionRef(db, projectId)
+  if (!col) {
+    return {
+      success: false,
+      error: 'Project is required to duplicate test cases.',
+      code: 'failed-precondition',
+    }
+  }
+
   try {
-    const col = collection(db, COL_TEST_CASES_ROOT)
     const snap = await getDocs(col)
     let max = 0
     for (const d of snap.docs) {
@@ -780,9 +845,10 @@ export async function deleteTemplate(userId, docId) {
  *
  * @param {string} userId
  * @param {Array<Record<string, unknown>>} rows - Validated row objects ready to persist
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult & { imported?: number, failedRows?: Array<{ rowIndex: number, reason: string }> }>}
  */
-export async function addTestCasesBatch(userId, rows) {
+export async function addTestCasesBatch(userId, rows, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
 
@@ -817,9 +883,21 @@ export async function addTestCasesBatch(userId, rows) {
     }
   }
 
+  const col = testCasesCollectionRef(db, projectId)
+  if (!col) {
+    return {
+      success: false,
+      error: 'Project is required to import test cases.',
+      code: 'failed-precondition',
+      failedRows: list.map((_, i) => ({
+        rowIndex: i,
+        reason: 'Project is required to import test cases.',
+      })),
+    }
+  }
+
   try {
     const batch = writeBatch(db)
-    const col = collection(db, COL_TEST_CASES_ROOT)
 
     for (let i = 0; i < list.length; i += 1) {
       const ref = doc(col)
@@ -860,9 +938,10 @@ export async function addTestCasesBatch(userId, rows) {
  * - Intended for Admin/QA Lead “clear all” only (enforce in UI + rules).
  *
  * @param {string} userId - Firebase Auth uid (caller must be signed in)
+ * @param {string|null|undefined} projectId
  * @returns {Promise<ServiceResult & { deleted?: number }>}
  */
-export async function deleteAllTestCases(userId) {
+export async function deleteAllTestCases(userId, projectId) {
   const gate = requireUid(userId)
   if (!gate.success) return gate
 
@@ -875,8 +954,16 @@ export async function deleteAllTestCases(userId) {
     }
   }
 
+  const col = testCasesCollectionRef(db, projectId)
+  if (!col) {
+    return {
+      success: false,
+      error: 'Project is required to delete test cases.',
+      code: 'failed-precondition',
+    }
+  }
+
   try {
-    const col = collection(db, COL_TEST_CASES_ROOT)
     const snap = await getDocs(col)
     if (snap.empty) return { success: true, deleted: 0 }
 
@@ -1324,26 +1411,23 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
    */
   const resolveInviteContext = async () => {
     if (typeof window === 'undefined') return null
-    if (!emailLower) return null
     const sp = new URLSearchParams(window.location.search || '')
     let inviteTokenOrId = String(sp.get('invite') ?? '').trim()
     let projectId = String(sp.get('project') ?? '').trim()
     if (!inviteTokenOrId || !projectId) {
       const stored = readPendingInviteFromStorage()
       if (stored) {
-        inviteTokenOrId = stored.invite
-        projectId = stored.project
+        if (!inviteTokenOrId) inviteTokenOrId = stored.invite
+        if (!projectId) projectId = stored.project
       }
     }
-    if (!inviteTokenOrId || !projectId) return null
-    try {
-      // Support both forms:
-      // - invite=<inviteDocId> (legacy)
-      // - invite=<inviteToken> (current copy-link flow)
+    if (!inviteTokenOrId) return null
+
+    /** @returns {Promise<null | { projectId: string, inviteId: string, role: string, data: Record<string, unknown> }>} */
+    const loadInviteInProject = async (pid) => {
       let inviteId = ''
       let data = null
-
-      const directRef = doc(db, `projects/${projectId}/invites/${inviteTokenOrId}`)
+      const directRef = doc(db, `projects/${pid}/invites/${inviteTokenOrId}`)
       const directSnap = await getDoc(directRef)
       if (directSnap.exists()) {
         inviteId = directSnap.id
@@ -1351,7 +1435,7 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
       } else {
         const byToken = await getDocs(
           query(
-            collection(db, `projects/${projectId}/invites`),
+            collection(db, `projects/${pid}/invites`),
             where('token', '==', inviteTokenOrId),
             limit(1),
           ),
@@ -1362,11 +1446,11 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
         }
       }
       if (!inviteId || !data) return null
-
       const status = String(data.status ?? '')
       const invitedEmail = String(data.email ?? '').trim().toLowerCase()
+      const openInvite = data.openInvite === true
       if (status !== 'pending') return null
-      if (invitedEmail !== emailLower) return null
+      if (!openInvite && (!emailLower || invitedEmail !== emailLower)) return null
       const rawRole = String(data.role ?? 'Member')
       const role =
         rawRole === 'Owner' ||
@@ -1376,7 +1460,42 @@ export async function getOrCreateUserProfile(firebaseUser, options = {}) {
         rawRole === 'Viewer'
           ? rawRole
           : 'Member'
-      return { projectId, inviteId, role }
+      return { projectId: pid, inviteId, role, data }
+    }
+
+    try {
+      if (projectId) {
+        const res = await loadInviteInProject(projectId)
+        if (!res) return null
+        return { projectId: res.projectId, inviteId: res.inviteId, role: res.role }
+      }
+      const cg = query(
+        collectionGroup(db, 'invites'),
+        where('token', '==', inviteTokenOrId),
+        limit(5),
+      )
+      const snap = await getDocs(cg)
+      for (const d of snap.docs) {
+        const pathParts = d.ref.path.split('/')
+        const pid = pathParts[1]
+        const data = d.data() || {}
+        const status = String(data.status ?? '')
+        const invitedEmail = String(data.email ?? '').trim().toLowerCase()
+        const openInvite = data.openInvite === true
+        if (status !== 'pending') continue
+        if (!openInvite && (!emailLower || invitedEmail !== emailLower)) continue
+        const rawRole = String(data.role ?? 'Member')
+        const role =
+          rawRole === 'Owner' ||
+          rawRole === 'Admin' ||
+          rawRole === 'QA Lead' ||
+          rawRole === 'Member' ||
+          rawRole === 'Viewer'
+            ? rawRole
+            : 'Member'
+        return { projectId: pid, inviteId: d.id, role }
+      }
+      return null
     } catch {
       return null
     }

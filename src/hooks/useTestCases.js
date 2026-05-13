@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useProject } from '../contexts/ProjectContext'
 import { DEFAULT_FORM_VALUES } from '../constants/testCaseFields.js'
 import { exportToExcel } from '../utils/excelExport.js'
 import { syncToGoogleSheets } from '../utils/googleSheets.js'
@@ -24,7 +25,6 @@ import {
   logActivity,
   updateTestCase as updateTestCaseFirestore,
 } from '../firebase/firestore.js'
-import { COL_TEST_CASES_ROOT } from '../firebase/schema.js'
 
 /**
  * Computes the next `TC-###` id from existing test cases (3-digit zero padding).
@@ -88,6 +88,7 @@ function buildNewTestCase(formData, testCaseId) {
  */
 export function useTestCases() {
   const { user, userProfile } = useAuth()
+  const { projectId } = useProject()
 
   const [testCases, setTestCases] = useState([])
   const [loading, setLoading] = useState(true)
@@ -122,10 +123,17 @@ export function useTestCases() {
       return
     }
 
+    if (!projectId) {
+      setTestCases([])
+      setLoading(false)
+      setError('')
+      return
+    }
+
     setLoading(true)
     setError('')
 
-    const col = collection(db, COL_TEST_CASES_ROOT)
+    const col = collection(db, 'projects', projectId, 'testCases')
     const q = query(col, orderBy('updatedAt', 'desc'))
 
     const unsub = onSnapshot(
@@ -152,7 +160,7 @@ export function useTestCases() {
     )
 
     return () => unsub()
-  }, [user?.uid])
+  }, [user?.uid, projectId])
 
   const buildActor = useCallback(
     () => buildActivityActor(userProfile, user),
@@ -175,7 +183,7 @@ export function useTestCases() {
 
     setIsSubmitting(true)
     try {
-      const result = await addTestCaseFirestore(uid, row)
+      const result = await addTestCaseFirestore(uid, row, projectId)
       if (!result || result.success !== true) {
         return {
           success: false,
@@ -207,7 +215,7 @@ export function useTestCases() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [user?.uid, testCases, buildActor])
+  }, [user?.uid, projectId, testCases, buildActor])
 
   /**
    * Updates an existing test case in Firestore.
@@ -247,7 +255,7 @@ export function useTestCases() {
     setIsUpdating(true)
     setUpdatingDocId(String(docId))
     try {
-      const result = await updateTestCaseFirestore(uid, String(docId), updatedData)
+      const result = await updateTestCaseFirestore(uid, String(docId), updatedData, projectId)
       if (!result || result.success !== true) {
         return {
           success: false,
@@ -305,7 +313,7 @@ export function useTestCases() {
       setIsUpdating(false)
       setUpdatingDocId(null)
     }
-  }, [user?.uid, testCases, buildActor])
+  }, [user?.uid, projectId, testCases, buildActor])
 
   /**
    * Deletes a test case from Firestore.
@@ -341,7 +349,7 @@ export function useTestCases() {
     try {
       const victim =
         list.find((tc) => tc && String(tc.id) === String(docId)) ?? null
-      const result = await deleteTestCaseFirestore(uid, String(docId))
+      const result = await deleteTestCaseFirestore(uid, String(docId), projectId)
       if (!result || result.success !== true) {
         return {
           success: false,
@@ -383,7 +391,7 @@ export function useTestCases() {
       })
       setIsDeleting(false)
     }
-  }, [user?.uid, testCases, buildActor])
+  }, [user?.uid, projectId, testCases, buildActor])
 
   const syncToSheets = useCallback(async (accessToken) => {
     const uid = user?.uid
@@ -405,7 +413,7 @@ export function useTestCases() {
       message: '',
     })
 
-    const once = await getTestCasesOnce(uid)
+    const once = await getTestCasesOnce(uid, projectId)
     const rows = Array.isArray(once.data) ? once.data : []
 
     const result = await syncToGoogleSheets(rows, accessToken ?? null)
@@ -420,7 +428,7 @@ export function useTestCases() {
     })
 
     return result
-  }, [user?.uid])
+  }, [user?.uid, projectId])
 
   const exportExcel = useCallback(async () => {
     const uid = user?.uid
@@ -428,10 +436,10 @@ export function useTestCases() {
       alert('You must be signed in to export test cases.')
       return
     }
-    const once = await getTestCasesOnce(uid)
+    const once = await getTestCasesOnce(uid, projectId)
     const rows = Array.isArray(once.data) ? once.data : []
     exportToExcel(rows)
-  }, [user?.uid])
+  }, [user?.uid, projectId])
 
   const clearAll = useCallback(async () => {
     const uid = user?.uid
@@ -444,7 +452,7 @@ export function useTestCases() {
       message: 'Deleting all test cases…',
     })
 
-    const result = await deleteAllTestCasesFirestore(uid)
+    const result = await deleteAllTestCasesFirestore(uid, projectId)
     if (!result || result.success !== true) {
       setSyncStatus({
         loading: false,
@@ -466,7 +474,7 @@ export function useTestCases() {
       error: false,
       message: `Deleted ${typeof result.deleted === 'number' ? result.deleted : 0} test case(s).`,
     })
-  }, [user?.uid])
+  }, [user?.uid, projectId])
 
   const resetSyncStatus = useCallback(() => {
     setSyncStatus({

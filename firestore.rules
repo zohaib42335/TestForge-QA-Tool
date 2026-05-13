@@ -1,147 +1,199 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
+
+    // ---------------------------------------------------------------------
+    // Helper functions
+    // ---------------------------------------------------------------------
+    function isAuth() {
       return request.auth != null;
     }
 
-    function isSelf(uid) {
-      return isSignedIn() && request.auth.uid == uid;
+    function inviteEmail() {
+      return isAuth() && request.auth.token.email is string
+        ? lower(request.auth.token.email)
+        : '';
     }
 
-    // Workspace (legacy) role from users/{uid}
+    function emailsMatch(storedEmail) {
+      return isAuth()
+        && request.auth.token.email is string
+        && storedEmail is string
+        && lower(storedEmail) == inviteEmail();
+    }
+
+    function userHasNoProject() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        || !('projectId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.projectId == null;
+    }
+
+    function getMemberData(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data;
+    }
+
+    function isMember(projectId) {
+      return isAuth()
+        && exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+
+    function hasRole(projectId, roles) {
+      return isMember(projectId) && getMemberData(projectId).role in roles;
+    }
+
+    function isOwner(projectId) {
+      return isAuth()
+        && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid;
+    }
+
+    // First Owner row: project.ownerId must match; only one self-member as Owner.
+    function isFirstOwnerMemberCreate(projectId, memberId) {
+      return isAuth()
+        && request.auth.uid == memberId
+        && request.resource.data.role == 'Owner'
+        && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid
+        && !exists(/databases/$(database)/documents/projects/$(projectId)/members/$(memberId));
+    }
+
+    function pendingInviteSnapshot(projectId, inviteId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)/invites/$(inviteId)).data;
+    }
+
+    function inviteAllowsJoin(projectId, inviteId) {
+      let inv = pendingInviteSnapshot(projectId, inviteId);
+      return inv.status == 'pending'
+        && (
+          ('openInvite' in inv && inv.openInvite == true)
+          || (inv.email is string && lower(inv.email) == inviteEmail())
+        );
+    }
+
+    // Invitee creates their member doc while a matching invite is still pending.
+    function canCreateInvitedMember(projectId, memberId) {
+      return isAuth()
+        && request.auth.uid == memberId
+        && request.resource.data.inviteId is string
+        && exists(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId))
+        && inviteAllowsJoin(projectId, request.resource.data.inviteId)
+        && request.resource.data.role
+          == get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.role;
+    }
+
     function workspaceRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
     function hasWorkspaceRole(roles) {
-      return isSignedIn() && workspaceRole() in roles;
+      return isAuth() && workspaceRole() in roles;
     }
 
-    // Helper: get caller's role in a project
-    function getRole(projectId) {
-      return get(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid)).data.role;
-    }
+    // ---------------------------------------------------------------------
+    // Users collection (/users/{uid} is source of truth for project membership)
+    // ---------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isAuth() && request.auth.uid == uid;
+      allow create: if isAuth() && request.auth.uid == uid;
+      allow update: if isAuth() && request.auth.uid == uid;
 
-    // Helper: check if caller has one of the allowed roles
-    function hasRole(projectId, roles) {
-      return request.auth != null && getRole(projectId) in roles;
-    }
-
-    function isOwnProject(projectId) {
-      return isSignedIn() && request.auth.uid == projectId;
-    }
-
-    function inviteEmail() {
-      return isSignedIn() && request.auth.token.email is string
-        ? lower(request.auth.token.email)
-        : "";
-    }
-
-    function canReadInvite(projectId) {
-      return hasRole(projectId, ['Owner','Admin']) ||
-        (resource.data.email is string && lower(resource.data.email) == inviteEmail());
-    }
-
-    function canAcceptInvite(projectId) {
-      return isSignedIn() &&
-        resource.data.email is string &&
-        lower(resource.data.email) == inviteEmail() &&
-        resource.data.status == 'pending' &&
-        request.resource.data.status == 'accepted' &&
-        request.resource.data.acceptedBy == request.auth.uid;
-    }
-
-    function canCreateInvitedMember(projectId, memberId) {
-      return isSelf(memberId) &&
-        request.resource.data.inviteId is string &&
-        exists(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)) &&
-        get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.status == 'pending' &&
-        get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.email is string &&
-        lower(get(/databases/$(database)/documents/projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.email) == inviteEmail();
-    }
-
-    // -----------------------------------------------------------------------
-    // User profile bootstrap (required during first sign-in)
-    // -----------------------------------------------------------------------
-    match /users/{userId} {
-      allow read, create, update: if isSelf(userId);
-      allow delete: if false;
-
-      // Per-user subcollections used by the app (templates, testRuns, testRunResults, etc.)
+      // Per-user subcollections (templates, testRuns, testRunResults, etc.) — legacy paths until fully project-scoped.
       match /{subPath=**} {
-        allow read, write: if isSelf(userId);
+        allow read, write: if isAuth() && request.auth.uid == uid;
       }
     }
 
+    // ---------------------------------------------------------------------
+    // Projects / workspace
+    // ---------------------------------------------------------------------
     match /projects/{projectId} {
-      allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']) || isOwnProject(projectId);
-      allow create: if isSignedIn() && projectId == request.auth.uid;
-      allow update: if hasRole(projectId, ['Owner','Admin']) || isOwnProject(projectId);
-      allow delete: if hasRole(projectId, ['Owner']);
+      allow read: if isMember(projectId);
+      allow create: if isAuth()
+        && request.resource.data.ownerId == request.auth.uid
+        && userHasNoProject();
+      allow update: if hasRole(projectId, ['Owner', 'Admin']);
+      allow delete: if isOwner(projectId);
 
       match /members/{memberId} {
-        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']) || isSelf(memberId);
-        // Initial bootstrap: allow user to create their own Owner membership under their own project.
-        allow create: if (isSelf(memberId) && isOwnProject(projectId)) || canCreateInvitedMember(projectId, memberId);
-        allow update, delete: if hasRole(projectId, ['Owner','Admin']);
+        allow read: if isMember(projectId);
+        allow create: if isFirstOwnerMemberCreate(projectId, memberId)
+          || canCreateInvitedMember(projectId, memberId);
+        allow update, delete: if hasRole(projectId, ['Owner', 'Admin']);
       }
 
       match /invites/{inviteId} {
-        allow read: if canReadInvite(projectId);
-        allow create: if hasRole(projectId, ['Owner','Admin']);
-        allow update: if hasRole(projectId, ['Owner','Admin']) || canAcceptInvite(projectId);
-        allow delete: if false;
+        allow read: if isMember(projectId)
+          || (resource.data.email is string && emailsMatch(resource.data.email))
+          || ('openInvite' in resource.data && resource.data.openInvite == true && isAuth());
+        allow create: if hasRole(projectId, ['Owner', 'Admin']);
+        allow update: if hasRole(projectId, ['Owner', 'Admin'])
+          || (resource.data.email is string && emailsMatch(resource.data.email))
+          || ('openInvite' in resource.data && resource.data.openInvite == true && isAuth());
+        allow delete: if hasRole(projectId, ['Owner', 'Admin']);
       }
 
-      match /testCases/{tcId} {
-        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
-        allow create, update: if hasRole(projectId, ['Owner','Admin','QA Lead','Member']);
-        allow delete: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+      match /testCases/{docId} {
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
       }
 
-      match /testRuns/{runId} {
-        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
-        allow create: if hasRole(projectId, ['Owner','Admin','QA Lead']);
-        allow update: if hasRole(projectId, ['Owner','Admin','QA Lead','Member']);
-        allow delete: if hasRole(projectId, ['Owner','Admin']);
+      match /testRuns/{docId} {
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
       }
 
       match /bugs/{bugId} {
-        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
-        allow create, update: if hasRole(projectId, ['Owner','Admin','QA Lead','Member']);
-        allow delete: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
+
+        match /comments/{commentId} {
+          allow read: if isMember(projectId);
+          allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
+        }
       }
 
       match /notificationSettings/{docId} {
-        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead','Member','Viewer']);
-        allow write: if hasRole(projectId, ['Owner','Admin']);
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin']);
       }
 
-      match /aiGenerationLogs/{logId} {
-        allow read: if hasRole(projectId, ['Owner','Admin','QA Lead']);
-        allow write: if hasRole(projectId, ['Owner','Admin','QA Lead']);
+      match /aiGenerationLogs/{docId} {
+        allow read: if isMember(projectId);
+        allow write: if isMember(projectId);
+      }
+
+      match /aiPromptTemplates/{docId} {
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead']);
+      }
+
+      match /meta/{metaId} {
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
+      }
+
+      match /integrations/{integrationId} {
+        allow read: if isMember(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin']);
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Shared workspace collections (legacy paths still used by UI)
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Legacy top-level workspace collections (still used until client migrates paths)
+    // ---------------------------------------------------------------------
     match /testCases/{docId} {
-      allow read: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member','Viewer']);
-      allow create, update: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member']);
-      allow delete: if hasWorkspaceRole(['Owner','Admin','QA Lead']);
+      allow read: if hasWorkspaceRole(['Owner', 'Admin', 'QA Lead', 'Member', 'Viewer']);
+      allow create, update: if hasWorkspaceRole(['Owner', 'Admin', 'QA Lead', 'Member']);
+      allow delete: if hasWorkspaceRole(['Owner', 'Admin', 'QA Lead']);
     }
 
     match /activityLogs/{docId} {
-      allow read: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member','Viewer']);
-      allow create: if isSignedIn();
+      allow read: if hasWorkspaceRole(['Owner', 'Admin', 'QA Lead', 'Member', 'Viewer']);
+      allow create: if isAuth();
       allow update, delete: if false;
     }
 
     match /comments/{docId} {
-      allow read: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member','Viewer']);
-      allow create, update, delete: if hasWorkspaceRole(['Owner','Admin','QA Lead','Member']);
+      allow read: if hasWorkspaceRole(['Owner', 'Admin', 'QA Lead', 'Member', 'Viewer']);
+      allow create, update, delete: if hasWorkspaceRole(['Owner', 'Admin', 'QA Lead', 'Member']);
     }
   }
 }

@@ -4,6 +4,7 @@
  * @param {boolean} props.open
  * @param {Function} props.onClose
  * @param {Function} props.onImport - ({ imported, skipped, failedRows?, error? }) => void
+ * @param {string|null|undefined} [props.projectId]
  */
 
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react'
@@ -31,7 +32,7 @@ const STEP_LABELS = ['Upload', 'Map columns', 'Preview', 'Done']
  * @param {Function} props.onClose
  * @param {Function} props.onImport
  */
-export default function ImportModal({ open, onClose, onImport }) {
+export default function ImportModal({ open, onClose, onImport, projectId = null }) {
   const { user, userProfile } = useAuth()
   const [step, setStep] = useState(1)
   const [parseError, setParseError] = useState(/** @type {string|null} */ (null))
@@ -176,6 +177,28 @@ export default function ImportModal({ open, onClose, onImport }) {
       return
     }
 
+    if (!projectId) {
+      const msg = 'No project is selected. Open the app from your workspace and try again.'
+      setSummary({
+        imported: 0,
+        skipped,
+        error: msg,
+        failedRows: validEntries.map((r) => ({
+          rowNumber: r.sourceIndex + 1,
+          reason: msg,
+        })),
+      })
+      setStep(4)
+      if (typeof onImport === 'function') {
+        onImport({
+          imported: 0,
+          skipped,
+          error: msg,
+        })
+      }
+      return
+    }
+
     setIsImporting(true)
     setImportProgress({ current: 0, total: validMerged.length })
     for (let i = 0; i < validMerged.length; i += 1) {
@@ -185,7 +208,7 @@ export default function ImportModal({ open, onClose, onImport }) {
       }
     }
 
-    const result = await addTestCasesBatch(user.uid, validMerged)
+    const result = await addTestCasesBatch(user.uid, validMerged, projectId)
     setIsImporting(false)
     setImportProgress(null)
 

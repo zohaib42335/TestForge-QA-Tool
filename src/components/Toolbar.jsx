@@ -23,6 +23,7 @@
  */
 
 import { useContext, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LogoFull, LogoLockup } from './Logo.jsx'
 import NavActions from './NavActions.jsx'
 import { AIGeneratorContext } from '../context/AIGeneratorContext.jsx'
@@ -48,15 +49,26 @@ function firstNameFromEmail(email) {
  * @param {Object} props
  * @param {{ email: string|null, photoURL: string|null, displayName: string|null, isGoogle: boolean, role?: string|null }} props.profile
  * @param {() => void | Promise<void>} props.onSignOut
+ * @param {string} [props.projectName]
  */
-function ProfileMenu({ profile, onSignOut }) {
+function ProfileMenu({ profile, onSignOut, projectName }) {
   const { email, photoURL, displayName, isGoogle } = profile
   const { userRole } = useRole()
   const showPhoto = Boolean(isGoogle && photoURL)
   const firstName = firstNameFromEmail(email)
+  const pname = projectName != null && String(projectName).trim() !== '' ? String(projectName).trim() : ''
 
   return (
-    <div className="relative group flex items-center gap-2">
+    <div className="relative flex flex-col items-end gap-0.5">
+      {pname ? (
+        <div
+          className="max-w-[48px] truncate text-center text-[10px] text-gray-400"
+          title={pname}
+        >
+          {pname}
+        </div>
+      ) : null}
+      <div className="relative group flex items-center gap-2">
       {userRole ? <RoleBadge role={userRole} /> : null}
       <button
         type="button"
@@ -84,27 +96,40 @@ function ProfileMenu({ profile, onSignOut }) {
         aria-label="Account details"
       >
         <div className="w-64 rounded-xl border border-[#B0C0E0] bg-white p-3 shadow-lg">
+          {pname ? (
+            <p className="truncate text-center text-xs font-semibold text-[#1A3263]" title={pname}>
+              {pname}
+            </p>
+          ) : null}
           {displayName && (
-            <p className="truncate text-sm font-semibold text-[#1A3263]">{displayName}</p>
+            <p className={`truncate text-sm font-semibold text-[#1A3263] ${pname ? 'mt-2' : ''}`}>{displayName}</p>
           )}
           {email && (
             <p
-              className={`break-all text-xs text-[#5A6E9A] ${displayName ? 'mt-1' : ''}`}
+              className={`break-all text-xs text-[#5A6E9A] ${displayName ? 'mt-1' : pname ? 'mt-2' : ''}`}
               title={email}
             >
               {email}
             </p>
           )}
+          <Link
+            to="/settings"
+            className="mt-3 block w-full rounded-lg border border-[#B0C0E0] py-2 text-center text-sm font-medium text-[#1A3263] transition hover:bg-[#EEF2FB]"
+          >
+            Project Settings
+          </Link>
+          <div className="my-2 h-px bg-[#EEF2FB]" aria-hidden />
           <button
             type="button"
             onClick={() => {
               void onSignOut()
             }}
-            className="mt-3 w-full rounded-lg border border-red-200 bg-white py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            className="w-full rounded-lg border border-red-200 bg-white py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
           >
-            Log out
+            Sign Out
           </button>
         </div>
+      </div>
       </div>
     </div>
   )
@@ -122,6 +147,7 @@ function ProfileMenu({ profile, onSignOut }) {
  * @param {Function} props.onImport
  * @param {Function} [props.onSignOut]
  * @param {{ email: string|null, photoURL: string|null, displayName: string|null, isGoogle: boolean, role?: string|null }|null} [props.authProfile]
+ * @param {string} [props.projectName]
  * @param {boolean} [props.showSyncMenu]
  * @param {boolean} [props.showDataMenu]
  * @param {boolean} [props.canImport]
@@ -141,6 +167,7 @@ export default function Toolbar({
   onImport,
   onSignOut,
   authProfile,
+  projectName = '',
   showSyncMenu = true,
   showDataMenu = true,
   canImport = true,
@@ -279,7 +306,7 @@ export default function Toolbar({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} className="shrink-0 justify-end">
               {showProfile ? (
                 <div data-tour="profile-menu">
-                  <ProfileMenu profile={authProfile} onSignOut={onSignOut} />
+                  <ProfileMenu profile={authProfile} onSignOut={onSignOut} projectName={projectName} />
                 </div>
               ) : (
                 <span className="inline-block h-10 w-10 shrink-0" aria-hidden />
@@ -345,6 +372,7 @@ export default function Toolbar({
                   <ProfileMenu
                     profile={authProfile}
                     onSignOut={onSignOut}
+                    projectName={projectName}
                   />
                 </div>
               </>

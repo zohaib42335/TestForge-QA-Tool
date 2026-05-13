@@ -1,6 +1,24 @@
 import React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 
+jest.mock('../contexts/ProjectContext', () => ({
+  ProjectProvider: ({ children }) => children,
+  useProject: () => ({
+    projectId: 'proj-test',
+    project: { id: 'proj-test', name: 'Test Project' },
+    userRole: 'Admin',
+    memberData: null,
+    loading: false,
+    error: null,
+    inviteMember: jest.fn(async () => ({ inviteLink: 'https://example.com/invite/t', token: 't' })),
+    acceptInviteToken: jest.fn(async () => ({
+      projectId: 'proj-test',
+      role: 'Member',
+      projectName: 'Test Project',
+    })),
+  }),
+}))
+
 import App from '../App.jsx'
 
 jest.mock('../utils/googleSheets.js', () => ({
@@ -33,7 +51,13 @@ jest.mock('../context/AuthContext.jsx', () => {
       },
       loading: false,
       roleLoading: false,
-      userProfile: { role: 'Admin', email: 'zohaib@example.com', displayName: 'Zohaib' },
+      userProfile: {
+        role: 'Admin',
+        email: 'zohaib@example.com',
+        displayName: 'Zohaib',
+        projectId: 'proj-test',
+        onboardingComplete: true,
+      },
       workspaceError: '',
       retryWorkspaceProfile: jest.fn(),
       isAdmin: true,
@@ -85,6 +109,8 @@ jest.mock('../utils/validation.js', () => ({
 let mockSnapshotDocs = []
 const mockOnSnapshot = jest.fn((q, onNext, _onError) => {
   const snap = {
+    exists: () => mockSnapshotDocs.length > 0,
+    size: mockSnapshotDocs.length,
     docs: mockSnapshotDocs.map((d) => ({
       id: d.id,
       data: () => d.data,
@@ -98,7 +124,13 @@ jest.mock('firebase/firestore', () => ({
   collection: jest.fn(),
   query: jest.fn(),
   orderBy: jest.fn(),
+  where: jest.fn(),
+  limit: jest.fn(),
   doc: jest.fn(),
+  getDoc: jest.fn().mockResolvedValue({
+    exists: () => true,
+    data: () => ({ role: 'Admin', projectId: 'proj-test', onboardingComplete: true }),
+  }),
   addDoc: jest.fn(),
   deleteDoc: jest.fn(),
   updateDoc: jest.fn(),
@@ -158,7 +190,7 @@ describe('test cases UI + firestore integration (mocked)', () => {
 
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: /view all/i }))
+    fireEvent.click(screen.getByRole('link', { name: /view all/i }))
 
     expect(await screen.findByText('TC-001')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument()
@@ -170,13 +202,14 @@ describe('test cases UI + firestore integration (mocked)', () => {
 
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: /^new test case$/i }))
-    fireEvent.click(screen.getByRole('button', { name: /create test case/i }))
+    fireEvent.click(await screen.findByRole('link', { name: /new test case/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /create test case/i }))
 
     // Hook should compute TC-001 and call Firestore wrapper once
     expect(mockAddTestCaseFirestore).toHaveBeenCalledTimes(1)
-    const [uid, payload] = mockAddTestCaseFirestore.mock.calls[0]
+    const [uid, payload, projectId] = mockAddTestCaseFirestore.mock.calls[0]
     expect(uid).toBe('user-1')
+    expect(projectId).toBe('proj-test')
     expect(payload.testCaseId).toBe('TC-001')
   })
 
@@ -200,7 +233,7 @@ describe('test cases UI + firestore integration (mocked)', () => {
     mockDeleteTestCaseFirestore.mockResolvedValue({ success: true })
 
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /view all/i }))
+    fireEvent.click(screen.getByRole('link', { name: /view all/i }))
 
     const deleteBtn = await screen.findByRole('button', { name: /^delete$/i })
     fireEvent.click(deleteBtn)
@@ -209,9 +242,10 @@ describe('test cases UI + firestore integration (mocked)', () => {
     fireEvent.click(confirmDelete)
 
     expect(mockDeleteTestCaseFirestore).toHaveBeenCalledTimes(1)
-    const [uid, docId] = mockDeleteTestCaseFirestore.mock.calls[0]
+    const [uid, docId, projectId] = mockDeleteTestCaseFirestore.mock.calls[0]
     expect(uid).toBe('user-1')
     expect(docId).toBe('doc1')
+    expect(projectId).toBe('proj-test')
   })
 })
 

@@ -9,16 +9,22 @@ import RunsList from './RunsList.jsx'
 
 /**
  * @param {Object} props
+ * @param {string|null|undefined} props.projectId
  * @param {Array<Record<string, unknown>>} props.testCases
  * @param {boolean} props.testCasesLoading
  * @param {(bugDocId: string) => void} [props.onOpenBug]
  */
-export default function TestRuns({ testCases, testCasesLoading, onOpenBug }) {
+export default function TestRuns({ projectId = null, testCases, testCasesLoading, onOpenBug }) {
   const [activeRunId, setActiveRunId] = useState(/** @type {string|null} */ (null))
 
   if (activeRunId) {
     return (
-      <ExecutionMode runId={activeRunId} onExit={() => setActiveRunId(null)} onOpenBug={onOpenBug} />
+      <ExecutionMode
+        projectId={projectId}
+        runId={activeRunId}
+        onExit={() => setActiveRunId(null)}
+        onOpenBug={onOpenBug}
+      />
     )
   }
 

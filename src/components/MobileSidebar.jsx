@@ -5,6 +5,7 @@
  */
 
 import { useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { LogoLockup } from './Logo.jsx'
 
 /** @typedef {'dashboard'|'runs'|'new'|'templates'|'all'|'team'|'activity'} TabKey */
@@ -37,6 +38,9 @@ function initialsFromUser(name, email) {
  * @param {number} props.testCaseCount
  * @param {Record<string, unknown>|null} [props.userProfile]
  * @param {{ email?: string|null, displayName?: string|null }|null} [props.currentUser]
+ * @param {string} [props.projectName]
+ * @param {() => void} [props.onOpenSettings]
+ * @param {() => void} [props.onSignOut]
  * @param {boolean} props.showTeamSection
  * @param {boolean} props.showSyncFooter
  * @param {boolean} props.showImportFooter
@@ -55,6 +59,9 @@ export default function MobileSidebar({
   testCaseCount,
   userProfile = null,
   currentUser = null,
+  projectName = '',
+  onOpenSettings,
+  onSignOut,
   showTeamSection,
   showSyncFooter,
   showImportFooter,
@@ -152,6 +159,8 @@ export default function MobileSidebar({
 
   const iconWrap = 'h-4 w-4 shrink-0 text-current'
 
+  const pname = typeof projectName === 'string' && projectName.trim() ? projectName.trim() : ''
+
   return (
     <div className="md:hidden" aria-hidden={!isOpen}>
       {/* Overlay */}
@@ -215,9 +224,18 @@ export default function MobileSidebar({
 
         {/* Profile */}
         <div
-          className="flex shrink-0 items-center gap-2.5 border-b-[0.5px] border-[#D6E0F5] bg-white px-3.5 py-3"
+          className="flex shrink-0 flex-col border-b-[0.5px] border-[#D6E0F5] bg-white px-3.5 py-3"
           style={{ paddingLeft: 14, paddingRight: 14 }}
         >
+          {pname ? (
+            <p
+              className="mb-1.5 w-full truncate text-center text-[10px] text-gray-400"
+              title={pname}
+            >
+              {pname}
+            </p>
+          ) : null}
+          <div className="flex items-center gap-2.5">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-medium text-[#1A3263]"
             style={{ background: '#D6E0F5' }}
@@ -243,6 +261,7 @@ export default function MobileSidebar({
               {roleLabel}
             </span>
           </div>
+        </div>
         </div>
 
         {/* Nav */}
@@ -315,6 +334,34 @@ export default function MobileSidebar({
             </>
           ) : null}
         </nav>
+
+        {(typeof onOpenSettings === 'function' || typeof onSignOut === 'function') && (
+          <div className="shrink-0 border-t-[0.5px] border-[#D6E0F5] bg-white px-3 py-2">
+            <div className="flex flex-col gap-1.5">
+              {typeof onOpenSettings === 'function' ? (
+                <Link
+                  to="/settings"
+                  onClick={onClose}
+                  className="flex min-h-[40px] w-full items-center justify-center rounded-md border-[0.5px] border-[#B0C0E0] bg-white text-[12px] font-medium text-[#1A3263] hover:bg-[#EEF2FB]"
+                >
+                  Project Settings
+                </Link>
+              ) : null}
+              {typeof onSignOut === 'function' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSignOut()
+                    onClose()
+                  }}
+                  className="flex min-h-[40px] w-full items-center justify-center rounded-md border-[0.5px] border-red-200 bg-white text-[12px] font-medium text-red-600 hover:bg-red-50"
+                >
+                  Sign out
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         {(showSyncFooter || showImportFooter || showExportFooter) && (

@@ -21,12 +21,14 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth'
+import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import {
   getFirebaseAuth,
   isFirebaseConfigured,
   firebaseConfigurationError,
 } from '../firebase/config.js'
-import { getOrCreateUserProfile } from '../firebase/firestore.js'
+import { getDb } from '../firebase/firestore.js'
+import { COL_USERS } from '../firebase/schema.js'
 import { hasPermission } from '../constants/rbac.ts'
 
 /**
@@ -117,8 +119,6 @@ export function AuthProvider({ children }) {
 
   const profileFetchGeneration = useRef(0)
   const lastProfileUid = useRef(/** @type {string|null} */ (null))
-  /** Passed into `getOrCreateUserProfile` once for new email/password registrations */
-  const pendingInitialDisplayNameRef = useRef(/** @type {string|null} */ (null))
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
@@ -143,7 +143,6 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(
       auth,
       (nextUser) => {
-        const gen = (profileFetchGeneration.current += 1)
         setUser(nextUser)
         setLoading(false)
 
@@ -159,36 +158,6 @@ export function AuthProvider({ children }) {
           lastProfileUid.current = nextUser.uid
           setUserProfile(null)
         }
-
-        setRoleLoading(true)
-        setWorkspaceError('')
-
-        void (async () => {
-          try {
-            const initialDisplayName = pendingInitialDisplayNameRef.current
-            pendingInitialDisplayNameRef.current = null
-            const profile = await getOrCreateUserProfile(nextUser, {
-              initialDisplayName: initialDisplayName ?? undefined,
-            })
-            if (gen !== profileFetchGeneration.current) return
-            lastProfileUid.current = nextUser.uid
-            setUserProfile(profile)
-            setWorkspaceError('')
-          } catch (err) {
-            if (gen !== profileFetchGeneration.current) return
-            const msg =
-              err instanceof Error
-                ? err.message
-                : 'Could not load your workspace profile. Please try again.'
-            console.error('[AuthContext] getOrCreateUserProfile:', err)
-            setUserProfile(null)
-            setWorkspaceError(msg)
-          } finally {
-            if (gen === profileFetchGeneration.current) {
-              setRoleLoading(false)
-            }
-          }
-        })()
       },
       (err) => {
         profileFetchGeneration.current += 1
@@ -204,6 +173,53 @@ export function AuthProvider({ children }) {
     return () => unsub()
   }, [])
 
+  useEffect(() => {
+    if (!isFirebaseConfigured) {
+      return
+    }
+
+    if (!user) {
+      setUserProfile(null)
+      setRoleLoading(false)
+      return
+    }
+
+    const db = getDb()
+    if (!db) {
+      setWorkspaceError('Firestore is not available.')
+      setRoleLoading(false)
+      return
+    }
+
+    const gen = (profileFetchGeneration.current += 1)
+    setRoleLoading(true)
+    setWorkspaceError('')
+
+    const ref = doc(db, COL_USERS, user.uid)
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (gen !== profileFetchGeneration.current) return
+        setUserProfile(snap.exists() ? { id: snap.id, ...snap.data() } : null)
+        setWorkspaceError('')
+        setRoleLoading(false)
+      },
+      (err) => {
+        if (gen !== profileFetchGeneration.current) return
+        console.error('[AuthContext] users/{uid} snapshot:', err)
+        setWorkspaceError(
+          err instanceof Error ? err.message : 'Could not load your profile.',
+        )
+        setRoleLoading(false)
+      },
+    )
+
+    return () => {
+      profileFetchGeneration.current += 1
+      unsub()
+    }
+  }, [user?.uid])
+
   const retryWorkspaceProfile = useCallback(async () => {
     if (!isFirebaseConfigured) {
       setWorkspaceError(configError || firebaseConfigurationError)
@@ -215,27 +231,22 @@ export function AuthProvider({ children }) {
       setWorkspaceError('You are not signed in.')
       return
     }
-    const gen = (profileFetchGeneration.current += 1)
-    setRoleLoading(true)
+    const db = getDb()
+    if (!db) {
+      setWorkspaceError('Firestore is not available.')
+      return
+    }
     setWorkspaceError('')
     try {
-      const profile = await getOrCreateUserProfile(u, {})
-      if (gen !== profileFetchGeneration.current) return
-      setUserProfile(profile)
-      setWorkspaceError('')
+      const snap = await getDoc(doc(db, COL_USERS, u.uid))
+      setUserProfile(snap.exists() ? { id: snap.id, ...snap.data() } : null)
     } catch (err) {
-      if (gen !== profileFetchGeneration.current) return
       const msg =
         err instanceof Error
           ? err.message
           : 'Could not load your workspace profile. Please try again.'
       console.error('[AuthContext] retryWorkspaceProfile:', err)
-      setUserProfile(null)
       setWorkspaceError(msg)
-    } finally {
-      if (gen === profileFetchGeneration.current) {
-        setRoleLoading(false)
-      }
     }
   }, [configError])
 
@@ -309,14 +320,29 @@ export function AuthProvider({ children }) {
       setAuthError('Please enter your name.')
       return
     }
-    pendingInitialDisplayNameRef.current = name
     try {
       const cred = await createUserWithEmailAndPassword(auth, email.trim(), password)
       if (cred.user) {
         await updateProfile(cred.user, { displayName: name })
+        const db = getDb()
+        if (db) {
+          await setDoc(
+            doc(db, COL_USERS, cred.user.uid),
+            {
+              uid: cred.user.uid,
+              email: cred.user.email ?? '',
+              displayName: name,
+              photoURL: cred.user.photoURL ?? null,
+              projectId: null,
+              onboardingComplete: false,
+              createdAt: serverTimestamp(),
+              lastLoginAt: serverTimestamp(),
+            },
+            { merge: true },
+          )
+        }
       }
     } catch (err) {
-      pendingInitialDisplayNameRef.current = null
       setAuthError(mapFirebaseAuthError(err))
     }
   }, [configError])
@@ -331,6 +357,9 @@ export function AuthProvider({ children }) {
     if (!auth) return
     try {
       await signOut(auth)
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login')
+      }
     } catch (err) {
       setAuthError(mapFirebaseAuthError(err))
     }

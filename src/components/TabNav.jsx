@@ -4,16 +4,28 @@
  * @param {'dashboard'|'runs'|'new'|'templates'|'all'|'team'|'activity'|'settings'} props.activeTab
  * @param {(tab: 'dashboard'|'runs'|'new'|'templates'|'all'|'team'|'activity'|'settings') => void} props.onTabChange
  * @param {number} props.testCaseCount
+ * @param {boolean} [props.useRouter] - When true, tabs link with react-router (NavLink)
  * @param {boolean} [props.showTeamTab] - When true, show Admin-only Team tab
  * @param {boolean} [props.showActivityTab] - When true, show Admin/QA Lead Activity tab
  */
 
+import { NavLink } from 'react-router-dom'
+import { TAB_TO_PATH } from '../routes/tabPaths.js'
+
 /** @typedef {'dashboard'|'runs'|'new'|'templates'|'all'|'team'|'activity'|'bugs'|'settings'} TabKey */
+
+const tabNavBtnClass = (isActive) =>
+  `inline-flex min-h-[44px] shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap border-b-2 bg-transparent px-3 text-[13px] transition-[color,border-color] duration-150 ease-in-out md:h-11 md:min-h-0 md:px-4 ${
+    isActive
+      ? 'cursor-pointer border-[#1A3263] font-medium text-[#1A3263]'
+      : 'cursor-pointer border-transparent font-normal text-[#5A6E9A] hover:border-[#B0C0E0] hover:text-[#1A3263]'
+  }`
 
 export default function TabNav({
   activeTab,
   onTabChange,
   testCaseCount,
+  useRouter = false,
   showNewTab = true,
   showTeamTab = false,
   showActivityTab = false,
@@ -39,20 +51,9 @@ export default function TabNav({
         <div className="flex min-h-0 min-w-0 flex-nowrap md:w-full">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => onTabChange(tab.key)}
-                data-tour={`tab-${tab.key}`}
-                aria-label={tab.label}
-                title={tab.label}
-                className={`inline-flex min-h-[44px] shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap border-b-2 bg-transparent px-3 text-[13px] transition-[color,border-color] duration-150 ease-in-out md:h-11 md:min-h-0 md:px-4 ${
-                  isActive
-                    ? 'cursor-pointer border-[#1A3263] font-medium text-[#1A3263]'
-                    : 'cursor-pointer border-transparent font-normal text-[#5A6E9A] hover:border-[#B0C0E0] hover:text-[#1A3263]'
-                }`}
-              >
+            const to = TAB_TO_PATH[tab.key]
+            const inner = (
+              <>
                 {tab.key === 'dashboard' && (
                   <svg
                     viewBox="0 0 24 24"
@@ -181,6 +182,36 @@ export default function TabNav({
                     {bugCount}
                   </span>
                 )}
+              </>
+            )
+
+            if (useRouter && to) {
+              return (
+                <NavLink
+                  key={tab.key}
+                  to={to}
+                  end
+                  data-tour={`tab-${tab.key}`}
+                  aria-label={tab.label}
+                  title={tab.label}
+                  className={({ isActive: navActive }) => tabNavBtnClass(navActive)}
+                >
+                  {inner}
+                </NavLink>
+              )
+            }
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => onTabChange(tab.key)}
+                data-tour={`tab-${tab.key}`}
+                aria-label={tab.label}
+                title={tab.label}
+                className={tabNavBtnClass(isActive)}
+              >
+                {inner}
               </button>
             )
           })}

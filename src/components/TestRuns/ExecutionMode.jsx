@@ -3,11 +3,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { collection, getDocs, limit, query, where } from 'firebase/firestore'
 import { useAuth } from '../../context/AuthContext.jsx'
+import { useProject } from '../../contexts/ProjectContext'
 import { useRole } from '../../hooks/useRole'
 import { buildActivityActor, getActorDisplayLabel } from '../../utils/memberDisplay.js'
 import { getDb, logActivity, updateRunStats, updateTestResult } from '../../firebase/firestore.js'
-import { collection, getDocs, limit, query, where } from 'firebase/firestore'
+import { COL_PROJECTS } from '../../firebase/schema.js'
 import { useRunExecution } from '../../hooks/useTestRuns.js'
 import { useAutoCreateBug } from '../../hooks/useAutoCreateBug.js'
 import ReportBugModal from '../modals/ReportBugModal.jsx'
@@ -33,11 +35,19 @@ function orderResults(results) {
 
 /**
  * @param {Object} props
+ * @param {string|null|undefined} props.projectId
  * @param {string} props.runId
  * @param {() => void} props.onExit
  * @param {(bugDocId: string) => void} [props.onOpenBug]
  */
-export default function ExecutionMode({ runId, onExit, onOpenBug }) {
+export default function ExecutionMode({ projectId: projectIdProp, runId, onExit, onOpenBug }) {
+  const { projectId: ctxProjectId } = useProject()
+  const workspaceProjectId =
+    projectIdProp != null && String(projectIdProp).trim() !== ''
+      ? String(projectIdProp).trim()
+      : ctxProjectId != null && String(ctxProjectId).trim() !== ''
+        ? String(ctxProjectId).trim()
+        : ''
   const { user, userProfile } = useAuth()
   const { hasPermission, isViewer } = useRole()
   const canExecuteRun = hasPermission('run_execute')
@@ -75,10 +85,13 @@ export default function ExecutionMode({ runId, onExit, onOpenBug }) {
 
     try {
       const db = getDb()
-      if (db && tcId) {
-        // Query global testCases collection for the matching human-readable ID
+      if (db && tcId && workspaceProjectId) {
         const snap = await getDocs(
-          query(collection(db, 'testCases'), where('testCaseId', '==', tcId), limit(1))
+          query(
+            collection(db, COL_PROJECTS, workspaceProjectId, 'testCases'),
+            where('testCaseId', '==', tcId),
+            limit(1),
+          ),
         )
         if (!snap.empty) {
           const tcData = snap.docs[0].data()
@@ -223,9 +236,9 @@ export default function ExecutionMode({ runId, onExit, onOpenBug }) {
 
       // Auto-report bug on Fail
       if (newResult === 'Fail' && autoReportBugs) {
-        const projectId = uid // projectId == uid in this app
+        if (!workspaceProjectId) return
         const result = await autoCreateBug({
-          projectId,
+          projectId: workspaceProjectId,
           testCaseId: id,
           testRunId: runId,
           severity: PRIORITY_MAP[String(row?.priority ?? '')] ?? 'Medium',
@@ -673,7 +686,7 @@ export default function ExecutionMode({ runId, onExit, onOpenBug }) {
       <ReportBugModal
         isOpen={reportBugPrefill !== null}
         onClose={() => setReportBugPrefill(null)}
-        projectId={uid}
+        projectId={workspaceProjectId || uid}
         prefillFromTestCase={reportBugPrefill}
         onCreated={(docId, bugId) => {
           const resultRowId = reportBugPrefill?._resultRowId

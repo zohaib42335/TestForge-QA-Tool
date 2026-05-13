@@ -1,7 +1,23 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 
-import App from '../App.jsx'
+jest.mock('../contexts/ProjectContext', () => ({
+  ProjectProvider: ({ children }) => children,
+  useProject: () => ({
+    projectId: null,
+    project: null,
+    userRole: null,
+    memberData: null,
+    loading: false,
+    error: null,
+    inviteMember: jest.fn(),
+    acceptInviteToken: jest.fn(),
+  }),
+}))
+
+import { AppProviders } from '../App.jsx'
+import { AppRoutes } from '../routes/AppRoutes.jsx'
 
 jest.mock('../utils/googleSheets.js', () => ({
   extractTokenFromUrl: () => null,
@@ -46,7 +62,13 @@ jest.mock('../context/AuthContext.jsx', () => {
 
 describe('auth flow', () => {
   it('unauthenticated user sees Login', () => {
-    render(<App />)
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <AppProviders>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    )
 
     expect(
       screen.getByText(/Sign in to manage test cases/i),

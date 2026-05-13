@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useContext } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useProject } from '../contexts/ProjectContext'
 import { useRole } from '../hooks/useRole'
 import { AIGeneratorContext } from '../context/AIGeneratorContext.jsx'
 import { buildActivityActor } from '../utils/memberDisplay.js'
@@ -163,6 +164,7 @@ export default function TestCaseTable({
   deletingDocIds = new Set(),
 }) {
   const { user, userProfile } = useAuth()
+  const { projectId } = useProject()
   const { hasPermission } = useRole()
   const canCreate = hasPermission('testcase_create')
   const canEdit = hasPermission('testcase_edit')
@@ -385,6 +387,10 @@ export default function TestCaseTable({
       showToast('You must be signed in to duplicate a test case.', 'error')
       return
     }
+    if (!projectId) {
+      showToast('No active project.', 'error')
+      return
+    }
     setDuplicatingId(String(testCase.id))
     try {
       const who =
@@ -393,7 +399,7 @@ export default function TestCaseTable({
           : user?.email
             ? String(user.email)
             : 'Unknown'
-      const result = await duplicateTestCase(uid, testCase, who)
+      const result = await duplicateTestCase(uid, testCase, who, projectId)
       if (!result.success) {
         console.error('[TestCaseTable] duplicateTestCase:', result.error)
         showToast(result.error || 'Failed to duplicate test case. Try again.', 'error')
@@ -460,6 +466,10 @@ export default function TestCaseTable({
       showToast('You must be signed in to update test cases.', 'error')
       return
     }
+    if (!projectId) {
+      showToast('No active project.', 'error')
+      return
+    }
 
     const { status, count, docIds } = confirmDialog
     const displayLabel = statusDisplayLabel(status)
@@ -467,7 +477,7 @@ export default function TestCaseTable({
     setBulkLoading(true)
     setBulkTargetStatus(status)
     try {
-      const result = await bulkUpdateStatus(uid, docIds, status)
+      const result = await bulkUpdateStatus(uid, docIds, status, projectId)
       if (!result.success) {
         showToast(result.error || 'Failed to update. Please try again.', 'error')
         return

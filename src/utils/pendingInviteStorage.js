@@ -11,8 +11,8 @@ export function capturePendingInviteFromUrl() {
     const sp = new URLSearchParams(window.location.search || '')
     const invite = String(sp.get('invite') ?? '').trim()
     const project = String(sp.get('project') ?? '').trim()
-    if (invite && project) {
-      sessionStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({ invite, project }))
+    if (invite) {
+      sessionStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({ invite, project: project || '' }))
     }
   } catch {
     // ignore quota / private mode
@@ -20,7 +20,7 @@ export function capturePendingInviteFromUrl() {
 }
 
 /**
- * @returns {{ invite: string, project: string } | null}
+ * @returns {{ invite: string, project: string } | null} — `project` may be empty when invite is token-only.
  */
 export function readPendingInviteFromStorage() {
   if (typeof window === 'undefined') return null
@@ -30,7 +30,7 @@ export function readPendingInviteFromStorage() {
     const p = JSON.parse(raw)
     const invite = typeof p.invite === 'string' ? p.invite.trim() : ''
     const project = typeof p.project === 'string' ? p.project.trim() : ''
-    if (!invite || !project) return null
+    if (!invite) return null
     return { invite, project }
   } catch {
     return null

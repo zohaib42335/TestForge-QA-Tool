@@ -12,6 +12,7 @@ import {
   enableMultiTabIndexedDbPersistence,
   enableIndexedDbPersistence,
 } from 'firebase/firestore'
+import { getStorage } from 'firebase/storage'
 
 /**
  * Reads a trimmed env value or null if missing.
@@ -156,6 +157,15 @@ export function getFirebaseAuth() {
 }
 
 /**
+ * @returns {import('firebase/storage').FirebaseStorage|null}
+ */
+export function getFirebaseStorage() {
+  const app = getFirebaseApp()
+  if (!app) return null
+  return getStorage(app)
+}
+
+/**
  * Returns the Firebase Cloud Functions instance, or null if not configured.
  * In Vite dev mode, automatically connects to the local Functions emulator
  * so the ANTHROPIC_API_KEY in functions/.env is used instead of Secret Manager.
@@ -166,7 +176,7 @@ export function getFirebaseFunctions() {
   const app = getFirebaseApp()
   if (!app) return null
   if (_fnsInstance) return _fnsInstance
-  _fnsInstance = getFunctions(app)
+  _fnsInstance = getFunctions(app, 'us-central1')
   // Connect to the local emulator when running `npm run dev`
   if (import.meta.env.DEV) {
     try {

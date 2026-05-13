@@ -18,6 +18,8 @@ import {saveGeneratedCases} from "./ai/saveGeneratedCases.js";
 import {autoCreateBug} from "./bugs/autoCreateBug.js";
 import {createJiraIssue, syncBugStatusFromJira, testJiraConnection} from "./integrations/jira.js";
 import {sendInviteEmail} from "./invites/sendInviteEmail.js";
+import {generateInviteLink} from "./invites/generateInviteLink.js";
+import {acceptInvite} from "./invites/acceptInvite.js";
 
 // For cost control, you can set the maximum number of containers that can be
 // running at the same time. This helps mitigate the impact of unexpected
@@ -38,3 +40,4 @@ export {generateTestCases, saveGeneratedCases, generateAndSave};
 export {autoCreateBug};
 export {createJiraIssue, syncBugStatusFromJira, testJiraConnection};
 export {sendInviteEmail};
+export {generateInviteLink, acceptInvite};

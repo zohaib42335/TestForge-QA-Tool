@@ -7,6 +7,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore'
@@ -42,18 +43,26 @@ function toIso(tsLike) {
 function buildInviteLink(projectId, invite) {
   const origin =
     typeof window !== 'undefined' && window.location?.origin
-      ? window.location.origin
-      : 'http://localhost:5173'
+      ? String(window.location.origin).replace(/\/+$/, '')
+      : 'https://testforge.app'
   const token = String(invite?.token ?? invite?.id ?? '').trim()
   const pid = String(projectId ?? '').trim()
   if (!token || !pid) return ''
-  return `${origin}/?invite=${encodeURIComponent(token)}&project=${encodeURIComponent(pid)}`
+  return `${origin}/invite/${encodeURIComponent(token)}?project=${encodeURIComponent(pid)}`
 }
 
 function normalizeRole(raw) {
   const v = raw == null ? '' : String(raw)
   if (v === 'Tester') return 'Member'
   return ROLES.includes(v) ? v : 'Member'
+}
+
+function daysUntilExpiry(invite) {
+  const ex = invite?.expiresAt
+  if (!ex) return null
+  const ms = typeof ex.toMillis === 'function' ? ex.toMillis() : Date.parse(String(ex))
+  if (!Number.isFinite(ms)) return null
+  return Math.max(0, Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000)))
 }
 
 export default function TeamManager({ projectId }) {
@@ -224,6 +233,7 @@ export default function TeamManager({ projectId }) {
       try {
         await updateDoc(doc(db, `projects/${projectId}/invites/${inviteId}`), {
           invitedAt: serverTimestamp(),
+          expiresAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
         })
         showToast('Invite resent', 'success')
       } catch (err) {
@@ -457,12 +467,19 @@ export default function TeamManager({ projectId }) {
                 const inviterName = String(inviter?.displayName ?? inviter?.email ?? 'Unknown')
                 const inviteRole = normalizeRole(invite.role)
                 const invitedAt = toIso(invite.invitedAt)
+                const openInvite =
+                  invite.openInvite === true || !String(invite.email ?? '').trim()
+                const expDays = daysUntilExpiry(invite)
                 return (
                   <li key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-[#1A3263]">{String(invite.email ?? '')}</p>
+                      <p className="truncate text-sm font-medium text-[#1A3263]">
+                        {openInvite ? 'Open invite' : String(invite.email ?? '')}
+                      </p>
                       <p className="mt-1 text-xs text-[#5A6E9A]">
-                        Invited by {inviterName} {invitedAt ? `· ${getRelativeTime(invitedAt)}` : ''}
+                        Invited by {inviterName}
+                        {invitedAt ? ` · ${getRelativeTime(invitedAt)}` : ''}
+                        {expDays != null ? ` · Expires in ${expDays} day${expDays === 1 ? '' : 's'}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -492,7 +509,7 @@ export default function TeamManager({ projectId }) {
                         }}
                         className="rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 transition hover:bg-red-50"
                       >
-                        Cancel
+                        Revoke
                       </button>
                     </div>
                   </li>
@@ -506,7 +523,6 @@ export default function TeamManager({ projectId }) {
       <InviteMemberModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        projectId={projectId}
         currentRole={userRole}
       />
     </div>
