@@ -22,30 +22,8 @@
       "collectionGroup": "invites",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "token", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "invites",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "email", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "projects",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "slug", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "testCases",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
       ]
     }
   ],

@@ -7,12 +7,23 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { doc, onSnapshot } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  where,
+} from 'firebase/firestore'
 import type { Role } from '../constants/rbac'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getDb } from '../firebase/firestore.js'
-import { callAcceptInvite, callGenerateInviteLink } from '../firebase/inviteCallables'
-import { COL_USERS } from '../firebase/schema.js'
+import { callAcceptInvite } from '../firebase/inviteCallables'
+import { COL_PROJECTS, COL_USERS } from '../firebase/schema.js'
 import { snapshotExists } from '../utils/firestoreSnapshot.js'
 
 export type Project = {
@@ -202,15 +213,69 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       if (!projectId) {
         throw new Error('No active project.')
       }
+      const db = getDb()
+      if (!db) throw new Error('Firestore is not available.')
+
       const normalized =
         email != null && String(email).trim() !== '' ? String(email).trim().toLowerCase() : null
-      return callGenerateInviteLink({
-        projectId,
+
+      // Check for existing pending invite
+      if (normalized) {
+        const pendingQ = query(
+          collection(db, COL_PROJECTS, projectId, 'invites'),
+          where('email', '==', normalized),
+          where('status', '==', 'pending'),
+          limit(1),
+        )
+        const pendingSnap = await getDocs(pendingQ)
+        if (!pendingSnap.empty) {
+          const existing = pendingSnap.docs[0]
+          const token = String(existing.get('token') ?? '').trim()
+          const origin = window.location?.origin?.replace(/\/+$/, '') || 'https://testforge.app'
+          return { inviteLink: `${origin}/invite/${token}`, token }
+        }
+
+        // Check if already a member
+        const membersQ = query(
+          collection(db, COL_PROJECTS, projectId, 'members'),
+          where('email', '==', normalized),
+          limit(1),
+        )
+        const membersSnap = await getDocs(membersQ)
+        if (!membersSnap.empty) {
+          throw new Error('User is already a member.')
+        }
+      }
+
+      // Create invite document directly in Firestore
+      const token = crypto.randomUUID()
+      const openInvite = normalized == null
+      const inviteRef = doc(collection(db, COL_PROJECTS, projectId, 'invites'))
+
+      const inviteData: Record<string, unknown> = {
+        token,
         email: normalized,
+        openInvite,
         role,
-      })
+        invitedBy: user?.uid ?? null,
+        invitedAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        status: 'pending',
+      }
+      if (project?.name) inviteData.projectName = project.name
+      if (user?.displayName || user?.email) {
+        inviteData.invitedByName = user.displayName || user.email
+      }
+
+      await setDoc(inviteRef, inviteData)
+
+      const origin = window.location?.origin?.replace(/\/+$/, '') || 'https://testforge.app'
+      return {
+        inviteLink: `${origin}/invite/${token}`,
+        token,
+      }
     },
-    [projectId],
+    [projectId, project, user],
   )
 
   const acceptInviteToken = useCallback(async (token: string) => {
