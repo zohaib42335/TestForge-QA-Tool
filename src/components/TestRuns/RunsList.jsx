@@ -14,11 +14,12 @@ import CreateRunModal from './CreateRunModal.jsx'
 
 /**
  * @param {Object} props
+ * @param {string|null|undefined} props.projectId
  * @param {Array<Record<string, unknown>>} props.testCases
  * @param {boolean} props.testCasesLoading
  * @param {(runId: string) => void} props.onExecute
  */
-export default function RunsList({ testCases, testCasesLoading, onExecute }) {
+export default function RunsList({ projectId, testCases, testCasesLoading, onExecute }) {
   const { user, userProfile } = useAuth()
   const { hasPermission } = useRole()
   const canCreateRun = hasPermission('run_create')
@@ -34,6 +35,10 @@ export default function RunsList({ testCases, testCasesLoading, onExecute }) {
       showToast('You must be signed in.', 'error')
       return
     }
+    if (!projectId) {
+      showToast('No active project.', 'error')
+      return
+    }
     const id = run && run.id != null ? String(run.id) : ''
     if (!id) return
     const ok =
@@ -43,7 +48,7 @@ export default function RunsList({ testCases, testCasesLoading, onExecute }) {
       )
     if (!ok) return
     try {
-      await deleteTestRun(uid, id)
+      await deleteTestRun(projectId, uid, id)
       const actor = buildActivityActor(userProfile, user)
       const runName = run && run.name != null ? String(run.name) : 'Test run'
       if (actor) {
@@ -68,10 +73,14 @@ export default function RunsList({ testCases, testCasesLoading, onExecute }) {
       showToast('You must be signed in.', 'error')
       return
     }
+    if (!projectId) {
+      showToast('No active project.', 'error')
+      return
+    }
     const id = run && run.id != null ? String(run.id) : ''
     if (!id) return
     try {
-      await startTestRun(uid, id)
+      await startTestRun(projectId, uid, id)
       const actor = buildActivityActor(userProfile, user)
       const runName = run && run.name != null ? String(run.name) : 'Test run'
       if (actor) {
@@ -323,6 +332,7 @@ export default function RunsList({ testCases, testCasesLoading, onExecute }) {
 
       {modalOpen && (
         <CreateRunModal
+          projectId={projectId}
           testCases={testCases}
           testCasesLoading={testCasesLoading}
           onClose={() => setModalOpen(false)}

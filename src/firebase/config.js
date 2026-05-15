@@ -177,8 +177,10 @@ export function getFirebaseFunctions() {
   if (!app) return null
   if (_fnsInstance) return _fnsInstance
   _fnsInstance = getFunctions(app, 'us-central1')
-  // Connect to the local emulator when running `npm run dev`
-  if (import.meta.env.DEV) {
+  // Opt-in only: VITE_USE_FUNCTIONS_EMULATOR=true in .env (see .env.example)
+  const useEmu =
+    import.meta.env.DEV && readEnv('VITE_USE_FUNCTIONS_EMULATOR') === 'true'
+  if (useEmu) {
     try {
       connectFunctionsEmulator(_fnsInstance, 'localhost', 5001)
     } catch {

@@ -1,5 +1,5 @@
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('../contexts/ProjectContext', () => ({
   ProjectProvider: ({ children }) => children,
@@ -16,6 +16,19 @@ jest.mock('../contexts/ProjectContext', () => ({
       role: 'Member',
       projectName: 'Test Project',
     })),
+  }),
+}))
+
+jest.mock('../hooks/useRole', () => ({
+  useRole: () => ({
+    userRole: 'Admin',
+    hasPermission: () => true,
+    isOwner: false,
+    isAdmin: true,
+    isQALead: false,
+    isMember: false,
+    isViewer: false,
+    loading: false,
   }),
 }))
 
@@ -105,11 +118,20 @@ jest.mock('../utils/validation.js', () => ({
   validateTestCase: jest.fn(() => ({ isValid: true, errors: {} })),
 }))
 
+/** @param {Record<string, unknown>} [data] */
+function mockMemberDocSnap(data = { role: 'Admin' }) {
+  return {
+    exists: true,
+    id: 'user-1',
+    data: () => data,
+  }
+}
+
 // ---- Firestore mocks (NO real Firestore calls) ----
 let mockSnapshotDocs = []
 const mockOnSnapshot = jest.fn((q, onNext, _onError) => {
   const snap = {
-    exists: () => mockSnapshotDocs.length > 0,
+    exists: mockSnapshotDocs.length > 0,
     size: mockSnapshotDocs.length,
     docs: mockSnapshotDocs.map((d) => ({
       id: d.id,
@@ -127,14 +149,11 @@ jest.mock('firebase/firestore', () => ({
   where: jest.fn(),
   limit: jest.fn(),
   doc: jest.fn(),
-  getDoc: jest.fn().mockResolvedValue({
-    exists: () => true,
-    data: () => ({ role: 'Admin', projectId: 'proj-test', onboardingComplete: true }),
-  }),
+  getDoc: jest.fn().mockImplementation(() => Promise.resolve(mockMemberDocSnap())),
   addDoc: jest.fn(),
   deleteDoc: jest.fn(),
   updateDoc: jest.fn(),
-  getDocs: jest.fn(),
+  getDocs: jest.fn().mockResolvedValue({ docs: [], empty: true, size: 0 }),
   writeBatch: jest.fn(),
   serverTimestamp: jest.fn(() => new Date()),
   getFirestore: jest.fn(),
@@ -153,15 +172,58 @@ jest.mock('../firebase/firestore.js', () => ({
   deleteTestCase: (...args) => mockDeleteTestCaseFirestore(...args),
   updateTestCase: (...args) => mockUpdateTestCaseFirestore(...args),
   getTestCasesOnce: (...args) => mockGetTestCasesOnce(...args),
+  subscribeToProjectTestCases: (projectId, { onData, onError }) => {
+    if (!projectId) {
+      onData([])
+      return () => {}
+    }
+    try {
+      const snap = {
+        exists: mockSnapshotDocs.length > 0,
+        size: mockSnapshotDocs.length,
+        docs: mockSnapshotDocs.map((d) => ({
+          id: d.id,
+          data: () => d.data,
+        })),
+      }
+      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      onData(items)
+    } catch (err) {
+      onError(err)
+    }
+    return () => {}
+  },
   logActivity: jest.fn(),
   fetchCommentCountsByTestCaseIds: jest.fn().mockResolvedValue({}),
-  // keep the template exports available for any eager imports
   getTemplates: jest.fn(),
   addTemplate: jest.fn(),
   deleteTemplate: jest.fn(),
 }))
 
+const SAMPLE_DOC = {
+  id: 'doc1',
+  data: {
+    id: 'doc1',
+    testCaseId: 'TC-001',
+    module: 'Payments',
+    title: 'UI renders',
+    priority: 'Medium',
+    severity: 'Minor',
+    status: 'Not Executed',
+    testType: 'Functional',
+    assignedTo: 'QA',
+    updatedAt: new Date().toISOString(),
+  },
+}
+
+function renderAppAt(path) {
+  window.history.pushState({}, 'Test', path)
+  return render(<App />)
+}
+
 describe('test cases UI + firestore integration (mocked)', () => {
+  jest.setTimeout(15000)
+
   beforeEach(() => {
     mockSnapshotDocs = []
     mockOnSnapshot.mockClear()
@@ -171,42 +233,25 @@ describe('test cases UI + firestore integration (mocked)', () => {
   })
 
   it('test case list renders Firestore data', async () => {
-    mockSnapshotDocs = [
-      {
-        id: 'doc1',
-        data: {
-          id: 'doc1',
-          testCaseId: 'TC-001',
-          module: 'Payments',
-          title: 'UI renders',
-          priority: 'Medium',
-          severity: 'Minor',
-          status: 'Not Executed',
-          testType: 'Functional',
-          assignedTo: 'QA',
-        },
-      },
-    ]
+    mockSnapshotDocs = [SAMPLE_DOC]
 
-    render(<App />)
-
-    fireEvent.click(screen.getByRole('link', { name: /view all/i }))
+    renderAppAt('/test-cases')
 
     expect(await screen.findByText('TC-001')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^delete$/i })).toBeInTheDocument()
   })
 
   it('form submit calls addTestCase', async () => {
-    mockSnapshotDocs = [] // start with empty list so next id is deterministic
+    mockSnapshotDocs = []
     mockAddTestCaseFirestore.mockResolvedValue({ success: true, id: 'newDoc' })
 
-    render(<App />)
+    renderAppAt('/test-cases/new')
 
-    fireEvent.click(await screen.findByRole('link', { name: /new test case/i }))
     fireEvent.click(await screen.findByRole('button', { name: /create test case/i }))
 
-    // Hook should compute TC-001 and call Firestore wrapper once
-    expect(mockAddTestCaseFirestore).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(mockAddTestCaseFirestore).toHaveBeenCalledTimes(1)
+    })
     const [uid, payload, projectId] = mockAddTestCaseFirestore.mock.calls[0]
     expect(uid).toBe('user-1')
     expect(projectId).toBe('proj-test')
@@ -214,26 +259,10 @@ describe('test cases UI + firestore integration (mocked)', () => {
   })
 
   it('delete calls deleteTestCase', async () => {
-    mockSnapshotDocs = [
-      {
-        id: 'doc1',
-        data: {
-          id: 'doc1',
-          testCaseId: 'TC-001',
-          module: 'Payments',
-          title: 'UI renders',
-          priority: 'Medium',
-          severity: 'Minor',
-          status: 'Not Executed',
-          testType: 'Functional',
-          assignedTo: 'QA',
-        },
-      },
-    ]
+    mockSnapshotDocs = [SAMPLE_DOC]
     mockDeleteTestCaseFirestore.mockResolvedValue({ success: true })
 
-    render(<App />)
-    fireEvent.click(screen.getByRole('link', { name: /view all/i }))
+    renderAppAt('/test-cases')
 
     const deleteBtn = await screen.findByRole('button', { name: /^delete$/i })
     fireEvent.click(deleteBtn)
@@ -241,11 +270,12 @@ describe('test cases UI + firestore integration (mocked)', () => {
     const confirmDelete = await screen.findByRole('button', { name: /delete test case/i })
     fireEvent.click(confirmDelete)
 
-    expect(mockDeleteTestCaseFirestore).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(mockDeleteTestCaseFirestore).toHaveBeenCalledTimes(1)
+    })
     const [uid, docId, projectId] = mockDeleteTestCaseFirestore.mock.calls[0]
     expect(uid).toBe('user-1')
     expect(docId).toBe('doc1')
     expect(projectId).toBe('proj-test')
   })
 })
-

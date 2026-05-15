@@ -8,7 +8,6 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useProject } from '../contexts/ProjectContext'
 import { DEFAULT_FORM_VALUES } from '../constants/testCaseFields.js'
@@ -23,6 +22,7 @@ import {
   getDb,
   getTestCasesOnce,
   logActivity,
+  subscribeToProjectTestCases,
   updateTestCase as updateTestCaseFirestore,
 } from '../firebase/firestore.js'
 
@@ -133,19 +133,13 @@ export function useTestCases() {
     setLoading(true)
     setError('')
 
-    const col = collection(db, 'projects', projectId, 'testCases')
-    const q = query(col, orderBy('updatedAt', 'desc'))
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const unsub = subscribeToProjectTestCases(projectId, {
+      onData: (items) => {
         setTestCases(items)
         setLoading(false)
         setError('')
       },
-      (err) => {
-        console.error('[firestore] onSnapshot(testCases):', err)
+      onError: (err) => {
         setLoading(false)
         const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : ''
         const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : ''
@@ -157,7 +151,7 @@ export function useTestCases() {
             : 'Failed to load test cases from Firestore.',
         )
       },
-    )
+    })
 
     return () => unsub()
   }, [user?.uid, projectId])

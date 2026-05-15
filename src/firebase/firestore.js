@@ -34,6 +34,7 @@ import {
   COL_ACTIVITY_LOGS,
   COL_COMMENTS,
   COL_PROJECTS,
+  COL_TEST_CASES_ROOT,
   COL_USERS,
   SCHEMA_VERSION,
   SUB_TEMPLATES,
@@ -51,6 +52,19 @@ function testCasesCollectionRef(db, projectId) {
   const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
   if (!pid) return null
   return collection(db, COL_PROJECTS, pid, 'testCases')
+}
+
+/**
+ * @param {import('firebase/firestore').Firestore} db
+ * @param {string|null|undefined} projectId
+ * @param {string} sub
+ * @returns {import('firebase/firestore').CollectionReference|null}
+ */
+function projectSubcollectionRef(db, projectId, sub) {
+  const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+  const name = sub != null && String(sub).trim() !== '' ? String(sub).trim() : ''
+  if (!pid || !name) return null
+  return collection(db, COL_PROJECTS, pid, name)
 }
 
 /**
@@ -134,7 +148,7 @@ function normalizeError(err) {
     return {
       ...out,
       message:
-        'Missing or insufficient permissions. Deploy the rules in this repo (`firebase deploy --only firestore:rules`). They must allow your signed-in user to read/write the paths your screen uses (for example `users/{yourUid}`, top-level `testCases`, and subcollections such as `testRuns` and `testRunResults`).',
+        'Missing or insufficient permissions. Deploy the rules in this repo (`firebase deploy --only firestore:rules`). They must allow your signed-in user to read/write the paths your screen uses (for example `users/{yourUid}` and project-scoped paths under `projects/{projectId}/…`).',
     }
   }
 
@@ -346,6 +360,111 @@ function mapTestCaseDoc(data, docId) {
 }
 
 /**
+ * @param {unknown} v
+ * @returns {number}
+ */
+function timestampToMillis(v) {
+  if (v == null) return 0
+  if (typeof v === 'object' && v !== null && typeof /** @type {{ toDate?: () => Date }} */ (v).toDate === 'function') {
+    const d = /** @type {{ toDate: () => Date }} */ (v).toDate()
+    const t = d.getTime()
+    return Number.isNaN(t) ? 0 : t
+  }
+  const t = new Date(String(v)).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
+
+/**
+ * Newest `updatedAt` (then `createdAt`) first — client-side so subcollection reads need no composite index.
+ * @param {TestCaseFirestore[]} items
+ * @returns {TestCaseFirestore[]}
+ */
+export function sortTestCasesByUpdatedAt(items) {
+  const list = Array.isArray(items) ? items : []
+  return [...list].sort((a, b) => {
+    const ta = timestampToMillis(a.updatedAt) || timestampToMillis(a.createdAt)
+    const tb = timestampToMillis(b.updatedAt) || timestampToMillis(b.createdAt)
+    return tb - ta
+  })
+}
+
+/**
+ * Live listener for project test cases (`projects/{projectId}/testCases`).
+ * Falls back to legacy top-level `testCases` when the project query is denied.
+ *
+ * @param {string} projectId
+ * @param {{
+ *   onData: (rows: TestCaseFirestore[]) => void,
+ *   onError: (err: Error & { code?: string }) => void,
+ * }} handlers
+ * @returns {() => void}
+ */
+export function subscribeToProjectTestCases(projectId, { onData, onError }) {
+  const db = getDb()
+  const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+  if (!db || !pid) {
+    onData([])
+    return () => {}
+  }
+
+  const projectCol = testCasesCollectionRef(db, pid)
+  if (!projectCol) {
+    onData([])
+    return () => {}
+  }
+
+  /** @type {(() => void) | null} */
+  let legacyUnsub = null
+
+  const emitSnap = (/** @type {import('firebase/firestore').QuerySnapshot} */ snap) => {
+    const items = snap.docs.map((d) => mapTestCaseDoc(d.data(), d.id))
+    onData(sortTestCasesByUpdatedAt(items))
+  }
+
+  const attachLegacy = () => {
+    if (legacyUnsub) return
+    const legacyCol = collection(db, COL_TEST_CASES_ROOT)
+    legacyUnsub = onSnapshot(
+      legacyCol,
+      emitSnap,
+      (err) => {
+        console.error('[firestore] onSnapshot(legacy testCases):', err)
+        onError(/** @type {Error & { code?: string }} */ (err))
+      },
+    )
+  }
+
+  const primaryUnsub = onSnapshot(
+    projectCol,
+    (snap) => {
+      if (snap.empty) {
+        attachLegacy()
+        return
+      }
+      if (legacyUnsub) {
+        legacyUnsub()
+        legacyUnsub = null
+      }
+      emitSnap(snap)
+    },
+    (err) => {
+      console.error('[firestore] onSnapshot(project testCases):', err)
+      const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : ''
+      if (code === 'permission-denied') {
+        attachLegacy()
+        return
+      }
+      onError(/** @type {Error & { code?: string }} */ (err))
+    },
+  )
+
+  return () => {
+    primaryUnsub()
+    if (legacyUnsub) legacyUnsub()
+  }
+}
+
+/**
  * @param {import('firebase/firestore').DocumentData} data
  * @param {string} docId
  * @returns {TemplateFirestore}
@@ -382,13 +501,26 @@ export async function getTestCases(userId, projectId) {
   }
 
   try {
-    const q = query(col, orderBy('updatedAt', 'desc'))
-    const snap = await getDocs(q)
-    const items = snap.docs.map((d) => mapTestCaseDoc(d.data(), d.id))
+    const snap = await getDocs(col)
+    const items = sortTestCasesByUpdatedAt(
+      snap.docs.map((d) => mapTestCaseDoc(d.data(), d.id)),
+    )
     return { success: true, data: items }
   } catch (err) {
     const { message, code } = normalizeError(err)
     console.error('[firestore] getTestCases:', err)
+    if (code === 'permission-denied') {
+      try {
+        const legacySnap = await getDocs(collection(db, COL_TEST_CASES_ROOT))
+        const items = sortTestCasesByUpdatedAt(
+          legacySnap.docs.map((d) => mapTestCaseDoc(d.data(), d.id)),
+        )
+        return { success: true, data: items }
+      } catch (legacyErr) {
+        const legacyNorm = normalizeError(legacyErr)
+        return { success: false, error: legacyNorm.message, code: legacyNorm.code }
+      }
+    }
     return { success: false, error: message, code }
   }
 }
@@ -988,13 +1120,14 @@ export async function deleteAllTestCases(userId, projectId) {
 }
 
 /**
- * Fetch all test runs for a user in real time (newest first).
+ * Fetch all test runs for a project in real time (newest first).
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid (must match request.auth.uid in rules)
  * @param {(runs: Array<Record<string, unknown>>) => void} callback
  * @param {(message: string) => void} [onError]
  * @returns {() => void} Unsubscribe
  */
-export function subscribeToTestRuns(userId, callback, onError) {
+export function subscribeToTestRuns(projectId, userId, callback, onError) {
   const gate = requireUid(userId)
   const db = getDb()
   if (!gate.success || !db) {
@@ -1002,7 +1135,12 @@ export function subscribeToTestRuns(userId, callback, onError) {
     return () => {}
   }
 
-  const col = collection(db, COL_USERS, userId.trim(), SUB_TEST_RUNS)
+  const col = projectSubcollectionRef(db, projectId, SUB_TEST_RUNS)
+  if (!col) {
+    callback([])
+    return () => {}
+  }
+
   const q = query(col, orderBy('createdDate', 'desc'))
 
   return onSnapshot(
@@ -1012,7 +1150,7 @@ export function subscribeToTestRuns(userId, callback, onError) {
     },
     (err) => {
       const { message } = normalizeError(err)
-      console.error('[firestore] subscribeToTestRuns:', err)
+      console.error('[firestore] onSnapshot(testRuns):', err)
       if (typeof onError === 'function') onError(message)
       callback([])
     },
@@ -1021,6 +1159,7 @@ export function subscribeToTestRuns(userId, callback, onError) {
 
 /**
  * Create a new test run and seed `testRunResults` documents in one flow.
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {Record<string, unknown>} runData
  * @param {string} runData.name
@@ -1031,7 +1170,7 @@ export function subscribeToTestRuns(userId, callback, onError) {
  * @param {number} [runData.totalCases]
  * @returns {Promise<string>} New run document id
  */
-export async function createTestRun(userId, runData) {
+export async function createTestRun(projectId, userId, runData) {
   const gate = requireUid(userId)
   if (!gate.success) {
     throw new Error(gate.error || 'You must be signed in to create a test run.')
@@ -1039,6 +1178,12 @@ export async function createTestRun(userId, runData) {
   const db = getDb()
   if (!db) {
     throw new Error('Firebase is not configured or Firestore failed to initialize.')
+  }
+
+  const runsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUNS)
+  const resultsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUN_RESULTS)
+  if (!runsCol || !resultsCol) {
+    throw new Error('Project is required to create a test run.')
   }
 
   const uid = userId.trim()
@@ -1055,7 +1200,6 @@ export async function createTestRun(userId, runData) {
       : testCaseIds.length
 
   try {
-    const runsCol = collection(db, COL_USERS, uid, SUB_TEST_RUNS)
     const docRef = await addDoc(
       runsCol,
       stripUndefined({
@@ -1076,7 +1220,6 @@ export async function createTestRun(userId, runData) {
       }),
     )
 
-    const resultsCol = collection(db, COL_USERS, uid, SUB_TEST_RUN_RESULTS)
     const batch = writeBatch(db)
     selectedCases.forEach((tc, index) => {
       const ref = doc(resultsCol)
@@ -1123,13 +1266,14 @@ export async function createTestRun(userId, runData) {
 
 /**
  * Fetch results for a specific run in real time.
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {string} runId
  * @param {(rows: Array<Record<string, unknown>>) => void} callback
  * @param {(message: string) => void} [onError]
  * @returns {() => void} Unsubscribe
  */
-export function subscribeToRunResults(userId, runId, callback, onError) {
+export function subscribeToRunResults(projectId, userId, runId, callback, onError) {
   const gate = requireUid(userId)
   const db = getDb()
   if (!gate.success || !db || typeof runId !== 'string' || runId.trim() === '') {
@@ -1137,8 +1281,13 @@ export function subscribeToRunResults(userId, runId, callback, onError) {
     return () => {}
   }
 
-  const col = collection(db, COL_USERS, userId.trim(), SUB_TEST_RUN_RESULTS)
-  const q = query(col, where('runId', '==', runId))
+  const col = projectSubcollectionRef(db, projectId, SUB_TEST_RUN_RESULTS)
+  if (!col) {
+    callback([])
+    return () => {}
+  }
+
+  const q = query(col, where('runId', '==', runId.trim()))
 
   return onSnapshot(
     q,
@@ -1162,13 +1311,14 @@ export function subscribeToRunResults(userId, runId, callback, onError) {
 
 /**
  * Subscribe to a single test run document.
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {string} runId
  * @param {(run: Record<string, unknown>|null) => void} callback
  * @param {(message: string) => void} [onError]
  * @returns {() => void} Unsubscribe
  */
-export function subscribeToTestRun(userId, runId, callback, onError) {
+export function subscribeToTestRun(projectId, userId, runId, callback, onError) {
   const gate = requireUid(userId)
   const db = getDb()
   if (!gate.success || !db || typeof runId !== 'string' || runId.trim() === '') {
@@ -1176,7 +1326,13 @@ export function subscribeToTestRun(userId, runId, callback, onError) {
     return () => {}
   }
 
-  const ref = doc(db, COL_USERS, userId.trim(), SUB_TEST_RUNS, runId)
+  const runsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUNS)
+  if (!runsCol) {
+    callback(null)
+    return () => {}
+  }
+
+  const ref = doc(runsCol, runId.trim())
   return onSnapshot(
     ref,
     (snap) => {
@@ -1199,6 +1355,7 @@ export function subscribeToTestRun(userId, runId, callback, onError) {
 
 /**
  * Update a single test case result inside a run.
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {string} resultDocId
  * @param {'Not Run'|'Pass'|'Fail'|'Blocked'|'Skipped'} result
@@ -1206,7 +1363,7 @@ export function subscribeToTestRun(userId, runId, callback, onError) {
  * @param {string} [executedBy]
  * @returns {Promise<void>}
  */
-export async function updateTestResult(userId, resultDocId, result, notes = '', executedBy) {
+export async function updateTestResult(projectId, userId, resultDocId, result, notes = '', executedBy) {
   const gate = requireUid(userId)
   if (!gate.success) {
     throw new Error(gate.error || 'You must be signed in to update results.')
@@ -1220,9 +1377,13 @@ export async function updateTestResult(userId, resultDocId, result, notes = '', 
   }
 
   const uid = userId.trim()
+  const resultsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUN_RESULTS)
+  if (!resultsCol) {
+    throw new Error('Project is required to update results.')
+  }
 
   try {
-    const ref = doc(db, COL_USERS, uid, SUB_TEST_RUN_RESULTS, resultDocId)
+    const ref = doc(resultsCol, resultDocId.trim())
     const payload = stripUndefined({
       result,
       notes: notes == null ? '' : String(notes),
@@ -1242,6 +1403,7 @@ export async function updateTestResult(userId, resultDocId, result, notes = '', 
 
 /**
  * Update run-level counts and derived status.
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {string} runId
  * @param {{
@@ -1254,7 +1416,7 @@ export async function updateTestResult(userId, resultDocId, result, notes = '', 
  * }} stats
  * @returns {Promise<void>}
  */
-export async function updateRunStats(userId, runId, stats) {
+export async function updateRunStats(projectId, userId, runId, stats) {
   const gate = requireUid(userId)
   if (!gate.success) {
     throw new Error(gate.error || 'You must be signed in to update run stats.')
@@ -1268,12 +1430,16 @@ export async function updateRunStats(userId, runId, stats) {
   }
 
   const uid = userId.trim()
+  const runsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUNS)
+  if (!runsCol) {
+    throw new Error('Project is required to update run stats.')
+  }
 
   const notRunCount = Math.max(0, Math.round(Number(stats.notRunCount)) || 0)
   const completed = notRunCount === 0
 
   try {
-    const ref = doc(db, COL_USERS, uid, SUB_TEST_RUNS, runId)
+    const ref = doc(runsCol, runId.trim())
     await updateDoc(
       ref,
       stripUndefined({
@@ -1299,11 +1465,12 @@ export async function updateRunStats(userId, runId, stats) {
 
 /**
  * Start a run (set status to In Progress).
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {string} runId
  * @returns {Promise<void>}
  */
-export async function startTestRun(userId, runId) {
+export async function startTestRun(projectId, userId, runId) {
   const gate = requireUid(userId)
   if (!gate.success) {
     throw new Error(gate.error || 'You must be signed in to start a test run.')
@@ -1317,9 +1484,13 @@ export async function startTestRun(userId, runId) {
   }
 
   const uid = userId.trim()
+  const runsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUNS)
+  if (!runsCol) {
+    throw new Error('Project is required to start a test run.')
+  }
 
   try {
-    const ref = doc(db, COL_USERS, uid, SUB_TEST_RUNS, runId)
+    const ref = doc(runsCol, runId.trim())
     await updateDoc(ref, {
       status: 'In Progress',
       startedDate: new Date().toISOString(),
@@ -1333,11 +1504,12 @@ export async function startTestRun(userId, runId) {
 
 /**
  * Delete a test run and all of its result rows.
+ * @param {string|null|undefined} projectId
  * @param {string} userId - Firebase Auth uid
  * @param {string} runId
  * @returns {Promise<void>}
  */
-export async function deleteTestRun(userId, runId) {
+export async function deleteTestRun(projectId, userId, runId) {
   const gate = requireUid(userId)
   if (!gate.success) {
     throw new Error(gate.error || 'You must be signed in to delete a test run.')
@@ -1351,13 +1523,19 @@ export async function deleteTestRun(userId, runId) {
   }
 
   const uid = userId.trim()
+  const runsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUNS)
+  const resultsCol = projectSubcollectionRef(db, projectId, SUB_TEST_RUN_RESULTS)
+  if (!runsCol || !resultsCol) {
+    throw new Error('Project is required to delete a test run.')
+  }
+
+  const rid = runId.trim()
 
   try {
-    const runRef = doc(db, COL_USERS, uid, SUB_TEST_RUNS, runId)
+    const runRef = doc(runsCol, rid)
     await deleteDoc(runRef)
 
-    const col = collection(db, COL_USERS, uid, SUB_TEST_RUN_RESULTS)
-    const q = query(col, where('runId', '==', runId))
+    const q = query(resultsCol, where('runId', '==', rid))
     const snap = await getDocs(q)
     const CHUNK = 450
     const docs = snap.docs

@@ -46,9 +46,7 @@ export async function runSave(
   suiteId: string | null,
   featureDescription?: string
 ): Promise<string[]> {
-  // Client "View All" subscribes to the shared workspace collection: `testCases/{docId}`.
-  // To keep the UI consistent, AI-generated cases must be written to the same place.
-  const testCasesCollection = db.collection("testCases");
+  const testCasesCollection = db.collection(`projects/${projectId}/testCases`);
   const logCollection = db.collection(`projects/${projectId}/aiGenerationLogs`);
   const now = FieldValue.serverTimestamp();
   const createdDateIso = new Date().toISOString();

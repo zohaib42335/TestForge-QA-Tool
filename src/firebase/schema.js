@@ -34,9 +34,8 @@
  * - `testCases`, `testRuns`, `bugs` (+ `bugs/{id}/comments`), `notificationSettings`,
  *   `aiGenerationLogs`, `aiPromptTemplates`, `meta`, `integrations`
  *
- * **Legacy top-level paths** (until the client migrates)
- * - `testCases/{docId}`, `activityLogs/{docId}`, `comments/{docId}`
- * - `users/{uid}/templates`, `testRuns`, `testRunResults`
+ * **Per-user data** (not tenant-scoped)
+ * - `users/{uid}/templates`
  *
  * Deploy: `firebase deploy --only firestore:rules,firestore:indexes`
  *
@@ -64,10 +63,10 @@ export const SUB_TEST_CASES = 'testCases'
 /** Subcollection name for templates (path: users/{uid}/templates/{docId}). */
 export const SUB_TEMPLATES = 'templates'
 
-/** Subcollection name for test runs (path: users/{uid}/testRuns/{docId}). */
+/** Subcollection name for test runs (path: `projects/{projectId}/testRuns/{docId}`). */
 export const SUB_TEST_RUNS = 'testRuns'
 
-/** Subcollection name for per-run test results (path: users/{uid}/testRunResults/{docId}). */
+/** Subcollection name for per-run test results (path: `projects/{projectId}/testRunResults/{docId}`). */
 export const SUB_TEST_RUN_RESULTS = 'testRunResults'
 
 /** Top-level collection for thread comments on test cases (path: comments/{docId}). */

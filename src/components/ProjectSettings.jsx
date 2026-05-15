@@ -7,8 +7,13 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useJiraIntegration } from '../hooks/useJiraIntegration.js'
 import { useRequirePermission } from '../hooks/useRequirePermission'
+import { useRole } from '../hooks/useRole'
+import { useAuth } from '../context/AuthContext.jsx'
+import { useProject } from '../contexts/ProjectContext'
+import { callDeleteProject } from '../firebase/projectCallables'
 import { useToast } from './Toast.jsx'
 
 // ---------------------------------------------------------------------------
@@ -17,6 +22,10 @@ import { useToast } from './Toast.jsx'
 
 export default function ProjectSettings({ projectId }) {
   const { allowed, loading: permissionLoading } = useRequirePermission('project_settings_edit')
+  const { userRole } = useRole()
+  const { signOutUser } = useAuth()
+  const { project: ctxProject } = useProject()
+  const navigate = useNavigate()
   const showToast = useToast()
   const {
     config,
@@ -40,8 +49,9 @@ export default function ProjectSettings({ projectId }) {
   const [connectionResult, setConnectionResult] = useState(
     /** @type {{ success: boolean, accountName?: string, error?: string } | null} */ (null),
   )
-
-  // Load config on mount
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
   useEffect(() => {
     if (projectId) void fetchConfig(projectId)
   }, [projectId, fetchConfig])
@@ -82,6 +92,35 @@ export default function ProjectSettings({ projectId }) {
       setSaving(false)
     }
   }, [projectId, enabled, baseUrl, projectKey, email, apiToken, issueType, autoSync, proxyUrl, saveConfig, showToast])
+
+  const workspaceName =
+    ctxProject && typeof ctxProject.name === 'string' && ctxProject.name.trim() !== ''
+      ? ctxProject.name.trim()
+      : ''
+
+  const handleConfirmDeleteWorkspace = useCallback(async () => {
+    if (!projectId || workspaceName === '') return
+    if (deleteConfirmName.trim() !== workspaceName) {
+      showToast('Project name does not match.', 'error')
+      return
+    }
+    setDeleteBusy(true)
+    try {
+      await callDeleteProject(projectId)
+      showToast('Workspace deleted.', 'success')
+      setDeleteModalOpen(false)
+      setDeleteConfirmName('')
+      await signOutUser()
+      navigate('/onboarding', { replace: true })
+    } catch (e) {
+      showToast(
+        e instanceof Error ? e.message : 'Could not delete workspace.',
+        'error',
+      )
+    } finally {
+      setDeleteBusy(false)
+    }
+  }, [projectId, workspaceName, deleteConfirmName, showToast, signOutUser, navigate])
 
   const handleTestConnection = useCallback(async () => {
     if (!projectId) return
@@ -386,6 +425,89 @@ export default function ProjectSettings({ projectId }) {
           </div>
         </div>
       </div>
+
+      {userRole === 'Owner' ? (
+        <section
+          className="rounded-[12px] border-2 border-red-400 bg-white px-5 py-5 shadow-sm"
+          aria-labelledby="danger-zone-title"
+        >
+          <h2 id="danger-zone-title" className="text-[15px] font-semibold text-red-700">
+            Danger Zone
+          </h2>
+          <p className="mt-2 max-w-xl text-[12px] text-[#5A6E9A]">
+            Permanently delete this workspace and all associated data. This cannot be undone.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteConfirmName('')
+              setDeleteModalOpen(true)
+            }}
+            className="mt-4 inline-flex rounded-lg border-2 border-red-600 bg-white px-4 py-2 text-[12px] font-semibold text-red-600 transition hover:bg-red-50"
+          >
+            Delete Workspace
+          </button>
+        </section>
+      ) : null}
+
+      {deleteModalOpen ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 px-4"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-workspace-title"
+            className="w-full max-w-md rounded-xl border border-red-200 bg-white p-6 shadow-xl"
+          >
+            <h3 id="delete-workspace-title" className="text-lg font-semibold text-[#1A3263]">
+              Delete workspace permanently?
+            </h3>
+            <p className="mt-3 text-sm text-[#5A6E9A]">
+              This will permanently delete all test cases, runs, bugs, and team data. This cannot be
+              undone.
+            </p>
+            <p className="mt-4 text-[12px] font-medium text-[#1A3263]">
+              Type <span className="font-mono font-bold">{workspaceName || '—'}</span> to confirm:
+            </p>
+            <input
+              type="text"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              autoComplete="off"
+              className={inputClass}
+              placeholder={workspaceName || 'Project name'}
+            />
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteModalOpen(false)
+                  setDeleteConfirmName('')
+                }}
+                className="rounded-lg border border-[#B0C0E0] bg-white px-4 py-2 text-sm font-medium text-[#1A3263] hover:bg-[#EEF2FB]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  deleteBusy ||
+                  !workspaceName ||
+                  deleteConfirmName.trim() !== workspaceName
+                }
+                onClick={() => {
+                  void handleConfirmDeleteWorkspace()
+                }}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleteBusy ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

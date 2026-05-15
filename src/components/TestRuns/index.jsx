@@ -30,6 +30,7 @@ export default function TestRuns({ projectId = null, testCases, testCasesLoading
 
   return (
     <RunsList
+      projectId={projectId}
       testCases={testCases}
       testCasesLoading={testCasesLoading}
       onExecute={(runId) => setActiveRunId(runId)}

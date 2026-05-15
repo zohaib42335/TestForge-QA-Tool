@@ -26,6 +26,7 @@ import { useContext, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LogoFull, LogoLockup } from './Logo.jsx'
 import NavActions from './NavActions.jsx'
+import ProjectSwitcher from './ProjectSwitcher.jsx'
 import { AIGeneratorContext } from '../context/AIGeneratorContext.jsx'
 import { useRole } from '../hooks/useRole'
 import RoleBadge from './common/RoleBadge'
@@ -316,10 +317,11 @@ export default function Toolbar({
         ) : null}
 
         <div className="hidden md:flex flex-nowrap items-center justify-between gap-2 overflow-visible md:gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible md:gap-3" data-tour="toolbar-logo">
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-1 overflow-visible md:gap-1" data-tour="toolbar-logo">
             <h1 className="m-0 min-w-0 shrink-0 p-0">
               <LogoFull size="md" className="align-middle" />
             </h1>
+            <ProjectSwitcher projectName={projectName} />
           </div>
 
           <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2 sm:gap-3">

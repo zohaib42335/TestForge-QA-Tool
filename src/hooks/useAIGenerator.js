@@ -78,6 +78,10 @@ export function useAIGenerator(projectId, options = {}) {
   // ---------------------------------------------------------------------------
 
   const generate = useCallback(async () => {
+    if (!projectId || String(projectId).trim() === '') {
+      setError('No active project.')
+      return
+    }
     if (!featureDescription.trim()) {
       setError('Feature description is required.')
       return
@@ -93,6 +97,7 @@ export function useAIGenerator(projectId, options = {}) {
       const payload = {
         featureDescription: featureDescription.trim(),
         count: Number(count),
+        projectId,
       }
       if (moduleName.trim()) payload.moduleName = moduleName.trim()
       if (extraContext.trim()) payload.extraContext = extraContext.trim()
@@ -109,7 +114,7 @@ export function useAIGenerator(projectId, options = {}) {
     } finally {
       setLoading(false)
     }
-  }, [featureDescription, moduleName, extraContext, count])
+  }, [featureDescription, moduleName, extraContext, count, projectId])
 
   const toggleSelect = useCallback((/** @type {string} */ id) => {
     setSelectedIds((prev) => {

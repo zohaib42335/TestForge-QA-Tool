@@ -15,6 +15,7 @@ import {
   type Role,
 } from '../constants/rbac'
 import { getDb } from '../firebase/firestore.js'
+import { snapshotExists } from '../utils/firestoreSnapshot.js'
 
 type RoleContextValue = {
   userRole: Role | null
@@ -82,7 +83,7 @@ export function RoleProvider({ projectId, children }: RoleProviderProps) {
         const ref = doc(db, `projects/${pid}/members/${uid}`)
         const snap = await getDoc(ref)
         if (cancelled) return
-        const role = snap.exists() ? normalizeRole(snap.data()?.role) : null
+        const role = snapshotExists(snap) ? normalizeRole(snap.data()?.role) : null
         setUserRole(role)
       } catch {
         if (cancelled) return

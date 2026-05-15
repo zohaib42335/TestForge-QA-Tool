@@ -15,9 +15,8 @@
  * @param {boolean} [props.canCreate]
  * @returns {import('react').JSX.Element}
  */
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore'
-import { AIGeneratorContext } from '../context/AIGeneratorContext.jsx'
 import { getDb } from '../firebase/firestore.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useProject } from '../contexts/ProjectContext'
@@ -209,18 +208,18 @@ export default function Dashboard({ testCases, loading = false, error = '', onNa
     return () => unsub()
   }, [projectId])
 
+  const [aiLogs, setAiLogs] = useState(/** @type {Array<Record<string, unknown> & { id: string, __kind?: string }>} */ ([]))
+
   // Fetch the latest 3 AI generation log entries for the activity feed
-  const aiCtx = useContext(AIGeneratorContext)
-  const [aiLogs, setAiLogs] = useState([])
   useEffect(() => {
-    const projectId = aiCtx?.projectId
-    if (!projectId) return
+    const pid = projectId != null && String(projectId).trim() !== '' ? String(projectId).trim() : ''
+    if (!pid) return
     let cancelled = false
     const run = async () => {
       try {
         const db = getDb()
         if (!db) return
-        const col = collection(db, `projects/${projectId}/aiGenerationLogs`)
+        const col = collection(db, `projects/${pid}/aiGenerationLogs`)
         const q = query(col, orderBy('createdAt', 'desc'), limit(3))
         const snap = await getDocs(q)
         if (!cancelled) {
@@ -230,7 +229,7 @@ export default function Dashboard({ testCases, loading = false, error = '', onNa
     }
     void run()
     return () => { cancelled = true }
-  }, [aiCtx?.projectId])
+  }, [projectId])
 
   const stats = useMemo(() => {
     const normalized = list.map((t) => ({

@@ -32,6 +32,21 @@ import {
   clearPendingInviteFromStorage,
   readPendingInviteFromStorage,
 } from '../utils/pendingInviteStorage.js'
+import { LogoStacked } from '../components/Logo.jsx'
+import { snapshotExists } from '../utils/firestoreSnapshot.js'
+import { sendInviteEmail } from '../services/emailService'
+
+const inputClass =
+  'w-full rounded-lg border-[0.5px] border-[#B0C0E0] bg-white px-3 py-2.5 text-sm text-[#1A3263] outline-none transition placeholder:text-[#8A9BBF] hover:border-[#8A9BBF] focus:border-[#1A3263] focus:ring-2 focus:ring-[rgba(26,50,99,0.15)]'
+const labelClass = 'mb-1.5 block text-sm font-medium text-[#1A3263]'
+const primaryBtnClass =
+  'w-full rounded-lg bg-[#1A3263] py-3 text-sm font-semibold text-white transition hover:bg-[#122247] disabled:cursor-not-allowed disabled:opacity-60'
+const outlineBtnClass =
+  'rounded-lg border-[0.5px] border-[#B0C0E0] bg-white py-3 text-sm font-semibold text-[#1A3263] transition hover:border-[#1A3263] hover:bg-[#EEF2FB]'
+const pageShellClass =
+  'flex min-h-screen flex-col items-center bg-[#EEF2FB] px-4 py-12 text-[#1A3263]'
+const cardClass =
+  'w-full max-w-lg rounded-2xl border border-[#B0C0E0] bg-white p-8 shadow-sm'
 
 const INVITE_ROLES = ['Admin', 'QA Lead', 'Member', 'Viewer'] as const
 type InviteRole = (typeof INVITE_ROLES)[number]
@@ -125,7 +140,7 @@ function StepDots({ step }: { step: 1 | 2 | 3 }) {
         <div
           key={n}
           className={`h-2.5 w-2.5 rounded-full transition ${
-            n === step ? 'scale-125 bg-violet-600' : 'bg-neutral-200'
+            n === step ? 'scale-125 bg-[#1A3263]' : 'bg-[#B0C0E0]'
           }`}
           title={`Step ${n}`}
         />
@@ -136,11 +151,8 @@ function StepDots({ step }: { step: 1 | 2 | 3 }) {
 
 function BrandHeader() {
   return (
-    <div className="mb-8 flex flex-col items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-lg font-bold text-white">
-        TF
-      </div>
-      <span className="text-xl font-semibold tracking-tight text-white">TestForge</span>
+    <div className="mb-8 flex flex-col items-center">
+      <LogoStacked size="lg" />
     </div>
   )
 }
@@ -172,7 +184,7 @@ async function resolveInviteForUser(
   const tryDoc = async (pid: string, inv: string) => {
     const ref = doc(db, COL_PROJECTS, pid, 'invites', inv)
     const snap = await getDoc(ref)
-    if (!snap.exists()) return null
+    if (!snapshotExists(snap)) return null
     const d = snap.data()
     const openInvite = d.openInvite === true
     return {
@@ -317,7 +329,7 @@ export default function Onboarding() {
       try {
         const snap = await getDoc(doc(db, COL_USERS, user.uid))
         if (cancelled) return
-        const pid = snap.exists() ? snap.get('projectId') : null
+        const pid = snapshotExists(snap) ? snap.get('projectId') : null
         const hasProject =
           pid != null && typeof pid === 'string' && String(pid).trim() !== ''
         if (hasProject) {
@@ -395,9 +407,9 @@ export default function Onboarding() {
 
   if (checkingUser && user && isPathB) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0F0F0F] text-neutral-400">
-        <span className="h-10 w-10 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-        <p className="mt-4 text-sm">Loading invite…</p>
+      <div className={`${pageShellClass} justify-center`}>
+        <span className="h-10 w-10 animate-spin rounded-full border-2 border-[#1A3263] border-t-transparent" />
+        <p className="mt-4 text-sm text-[#5A6E9A]">Loading invite…</p>
       </div>
     )
   }
@@ -509,14 +521,31 @@ export default function Onboarding() {
         lastLoginAt: serverTimestamp(),
       }
       if (jobTitle) userPatch.jobTitle = jobTitle
-      batch.update(userRef, userPatch)
+      batch.set(
+        userRef,
+        {
+          uid: user.uid,
+          email: user.email ?? '',
+          displayName: user.displayName ?? '',
+          photoURL: user.photoURL ?? null,
+          ...userPatch,
+        },
+        { merge: true },
+      )
 
       await batch.commit()
 
       if (withInvites && inviteRows.length > 0) {
+        const origin =
+          typeof window !== 'undefined' && window.location?.origin
+            ? String(window.location.origin).replace(/\/+$/, '')
+            : 'https://testforge.app'
+        const inviteEmails: { email: string; role: string; link: string }[] = []
+
         for (const row of inviteRows) {
           const em = normalizeEmail(row.email)
           if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) continue
+          const token = crypto.randomUUID()
           const invRef = doc(collection(db, COL_PROJECTS, projectId, 'invites'))
           await setDoc(invRef, {
             email: em,
@@ -524,17 +553,45 @@ export default function Onboarding() {
             invitedBy: user.uid,
             invitedAt: serverTimestamp(),
             status: 'pending',
-            token: crypto.randomUUID(),
+            token,
             expiresAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
             projectName: name,
             invitedByName: user.displayName || user.email || 'Owner',
           })
+          inviteEmails.push({
+            email: em,
+            role: row.role,
+            link: `${origin}/invite/${encodeURIComponent(token)}?project=${encodeURIComponent(projectId)}`,
+          })
+        }
+
+        // Send emails via EmailJS in parallel (non-blocking)
+        if (inviteEmails.length > 0) {
+          const inviterName = user.displayName || user.email || 'Owner'
+          void Promise.allSettled(
+            inviteEmails.map((inv) =>
+              sendInviteEmail({
+                toEmail: inv.email,
+                invitedByName: inviterName,
+                projectName: name,
+                role: inv.role,
+                inviteLink: inv.link,
+              }),
+            ),
+          )
         }
       }
 
       navigate('/dashboard', { replace: true })
     } catch (e) {
-      setPathAError(e instanceof Error ? e.message : 'Something went wrong.')
+      const code =
+        e && typeof e === 'object' && 'code' in e ? String((e as { code: string }).code) : ''
+      const msg = e instanceof Error ? e.message : 'Something went wrong.'
+      if (code === 'permission-denied') {
+        setPathAError('Permission denied. Sign out and sign back in, or contact support.')
+      } else {
+        setPathAError(msg)
+      }
     } finally {
       setPathABusy(false)
     }
@@ -547,17 +604,27 @@ export default function Onboarding() {
       return
     }
     const db = getDb()
-    if (!db) return
-    setPathAError('')
-    let base = slugPreview || slugify(name)
-    if (await isSlugTaken(db, base)) {
-      base = `${base}-${randomSuffix()}`
-      if (await isSlugTaken(db, base)) {
-        base = await ensureUniqueSlug(db, base)
-      }
-      setSlugPreview(base)
+    if (!db) {
+      setPathAError('Firestore is not available.')
+      return
     }
-    setStep(2)
+    setPathABusy(true)
+    setPathAError('')
+    try {
+      let base = slugPreview || slugify(name)
+      if (await isSlugTaken(db, base)) {
+        base = `${base}-${randomSuffix()}`
+        if (await isSlugTaken(db, base)) {
+          base = await ensureUniqueSlug(db, base)
+        }
+        setSlugPreview(base)
+      }
+      setStep(2)
+    } catch (e) {
+      setPathAError(e instanceof Error ? e.message : 'Could not validate workspace name.')
+    } finally {
+      setPathABusy(false)
+    }
   }
 
   const addInviteChip = () => {
@@ -570,7 +637,7 @@ export default function Onboarding() {
 
   if (isPathB) {
     const guestCard = (
-      <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-2xl">
+      <div className={cardClass}>
         <h1 className="text-xl font-semibold text-neutral-900">You&apos;re invited</h1>
         <p className="mt-2 text-sm text-neutral-600">
           Sign in or create an account with the email this invite was sent to, then accept from this page.
@@ -578,7 +645,7 @@ export default function Onboarding() {
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Link
             to={`/signup?returnTo=${encodeURIComponent(returnToOnboarding)}`}
-            className="rounded-lg bg-violet-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-violet-700"
+            className={`${primaryBtnClass} px-4 text-center`}
           >
             Sign up to accept
           </Link>
@@ -593,7 +660,7 @@ export default function Onboarding() {
     )
 
     const err = (title: string, body: string) => (
-      <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-2xl">
+      <div className={cardClass}>
         <h1 className="text-xl font-semibold text-red-700">{title}</h1>
         <p className="mt-2 text-sm text-neutral-600">{body}</p>
         <Link to="/login" className="mt-6 inline-block text-sm font-semibold text-violet-600 hover:underline">
@@ -603,7 +670,7 @@ export default function Onboarding() {
     )
 
     return (
-      <div className="flex min-h-screen flex-col items-center bg-[#0F0F0F] px-4 py-12">
+      <div className={pageShellClass}>
         <BrandHeader />
         {pathBState === 'guest' && guestCard}
         {pathBState === 'invalid' && err('This invite link is invalid', 'Check the link or ask your admin for a new invite.')}
@@ -615,7 +682,7 @@ export default function Onboarding() {
             `Sign in with the email address this invite was sent to, or ask for a new invite.`,
           )}
         {pathBState === 'ready' && resolvedInvite && (
-          <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-2xl">
+          <div className={cardClass}>
             <p className="text-xs font-medium uppercase tracking-wide text-violet-600">Invitation</p>
             <h1 className="mt-1 text-xl font-semibold text-neutral-900">
               Join {resolvedInvite.projectName || 'a workspace'}
@@ -640,7 +707,7 @@ export default function Onboarding() {
               type="button"
               disabled={pathBBusy}
               onClick={() => void handlePathBAccept()}
-              className="mt-6 w-full rounded-lg bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+              className={`mt-6 ${primaryBtnClass}`}
             >
               {pathBBusy ? 'Joining…' : 'Accept invite'}
             </button>
@@ -663,39 +730,39 @@ export default function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-[#0F0F0F] px-4 py-12">
+    <div className={pageShellClass}>
       <BrandHeader />
 
-      <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-2xl">
+      <div className={cardClass}>
         <StepDots step={step} />
 
         {step === 1 && (
           <>
-            <h1 className="text-xl font-semibold text-neutral-900">Create your workspace</h1>
-            <p className="mt-2 text-sm text-neutral-600">
+            <h1 className="text-xl font-semibold text-[#1A3263]">Create your workspace</h1>
+            <p className="mt-2 text-sm text-[#5A6E9A]">
               This is where your team will manage test cases, runs, and bugs.
             </p>
             <div className="mt-6 space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-800">Workspace name *</label>
+                <label className={labelClass}>Workspace name *</label>
                 <input
                   value={workspaceName}
                   onChange={(e) => setWorkspaceName(e.target.value)}
                   placeholder="e.g. Acme QA Team, MyApp Testing"
-                  className="w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm outline-none ring-violet-500 focus:ring-2"
+                  className={inputClass}
                 />
-                <p className="mt-1.5 text-xs text-neutral-500">
-                  testforge.app/<span className="font-mono text-neutral-700">{slugPreview || 'your-slug'}</span>
+                <p className="mt-1.5 text-xs text-[#5A6E9A]">
+                  testforge.app/<span className="font-mono text-[#1A3263]">{slugPreview || 'your-slug'}</span>
                 </p>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-neutral-800">Description (optional)</label>
+                <label className={labelClass}>Description (optional)</label>
                 <textarea
                   value={workspaceDescription}
                   onChange={(e) => setWorkspaceDescription(e.target.value)}
                   placeholder="What are you testing?"
                   rows={3}
-                  className="w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm outline-none ring-violet-500 focus:ring-2"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -706,17 +773,18 @@ export default function Onboarding() {
             ) : null}
             <button
               type="button"
+              disabled={pathABusy}
               onClick={() => void onStep1Continue()}
-              className="mt-6 w-full rounded-lg bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700"
+              className={`mt-6 ${primaryBtnClass}`}
             >
-              Continue →
+              {pathABusy ? 'Checking…' : 'Continue →'}
             </button>
           </>
         )}
 
         {step === 2 && (
           <>
-            <h1 className="text-xl font-semibold text-neutral-900">Customize your workspace</h1>
+            <h1 className="text-xl font-semibold text-[#1A3263]">Customize your workspace</h1>
             <div className="mt-6">
               <p className="text-sm font-medium text-neutral-800">Workspace logo (optional)</p>
               <label className="mt-3 flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-full border-2 border-dashed border-neutral-300 bg-neutral-50 text-neutral-500 hover:border-violet-400 hover:text-violet-600">
@@ -765,10 +833,10 @@ export default function Onboarding() {
                       type="button"
                       onClick={() => setJobTitle(v)}
                       className={`flex items-start gap-2 rounded-xl border p-3 text-left text-xs font-medium transition ${
-                        sel ? 'border-violet-600 bg-violet-50 text-violet-900' : 'border-neutral-200 hover:border-neutral-300'
+                        sel ? 'border-[#1A3263] bg-[#EEF2FB] text-[#1A3263]' : 'border-[#B0C0E0] hover:border-[#8A9BBF]'
                       }`}
                     >
-                      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+                      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-[#1A3263]" />
                       {label}
                     </button>
                   )
@@ -780,14 +848,14 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="flex-1 rounded-lg border border-neutral-200 py-3 text-sm font-semibold text-neutral-800 hover:bg-neutral-50"
+                className={`flex-1 ${outlineBtnClass}`}
               >
                 ← Back
               </button>
               <button
                 type="button"
                 onClick={() => setStep(3)}
-                className="flex-1 rounded-lg bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700"
+                className={`flex-1 ${primaryBtnClass}`}
               >
                 Continue →
               </button>
@@ -797,8 +865,8 @@ export default function Onboarding() {
 
         {step === 3 && (
           <>
-            <h1 className="text-xl font-semibold text-neutral-900">Invite your team</h1>
-            <p className="mt-2 text-sm text-neutral-600">
+            <h1 className="text-xl font-semibold text-[#1A3263]">Invite your team</h1>
+            <p className="mt-2 text-sm text-[#5A6E9A]">
               Add teammates to collaborate. You can always do this later.
             </p>
             <div className="mt-4">
@@ -812,7 +880,7 @@ export default function Onboarding() {
                   }
                 }}
                 placeholder="email@company.com — press Enter"
-                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none ring-violet-500 focus:ring-2"
+                className={inputClass}
               />
               <div className="mt-3 flex flex-col gap-2">
                 {inviteRows.map((row) => (
@@ -860,7 +928,7 @@ export default function Onboarding() {
               type="button"
               disabled={pathABusy}
               onClick={() => void finalizeWorkspace(true)}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+              className={`mt-6 flex items-center justify-center gap-2 ${primaryBtnClass}`}
             >
               {pathABusy ? (
                 <>
@@ -875,7 +943,7 @@ export default function Onboarding() {
               type="button"
               disabled={pathABusy}
               onClick={() => void finalizeWorkspace(false)}
-              className="mt-4 w-full text-center text-sm font-semibold text-violet-600 hover:underline"
+              className="mt-4 w-full text-center text-sm font-semibold text-[#1A3263] hover:underline disabled:opacity-60"
             >
               Skip for now →
             </button>

@@ -18,6 +18,32 @@ function FullScreenSpinner({ label }) {
   )
 }
 
+function SuspendedWorkspaceScreen({ projectName, onSignOut }) {
+  const pname =
+    projectName != null && String(projectName).trim() !== '' ? String(projectName).trim() : 'this workspace'
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#EEF2FB] px-6 text-center">
+      <div className="max-w-md rounded-xl border border-red-200 bg-white px-8 py-10 shadow-sm">
+        <h1 className="text-lg font-semibold text-[#1A3263]">Your account has been suspended</h1>
+        <p className="mt-3 text-sm text-[#5A6E9A]">
+          <span className="font-medium text-[#1A3263]">{pname}</span>
+          <br />
+          Contact your workspace admin for help.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            void onSignOut()
+          }}
+          className="mt-8 w-full rounded-lg bg-[#1A3263] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#122247]"
+        >
+          Sign Out
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** Requires Firebase user; sends anonymous visitors to /login. */
 export function PrivateRoute() {
   const { user, loading, configError } = useAuth()
@@ -46,8 +72,9 @@ export function PrivateRoute() {
  * Requires an assigned project and completed onboarding (or legacy profile with projectId).
  */
 export function ProjectRoute() {
-  const { user, userProfile, roleLoading, workspaceError, retryWorkspaceProfile } = useAuth()
-  const { loading: projectCtxLoading } = useProject()
+  const { user, userProfile, roleLoading, workspaceError, retryWorkspaceProfile, signOutUser } =
+    useAuth()
+  const { loading: projectCtxLoading, memberData, project } = useProject()
   const location = useLocation()
 
   if (!user) {
@@ -73,6 +100,14 @@ export function ProjectRoute() {
         </button>
       </div>
     )
+  }
+
+  const memberStatus =
+    memberData && typeof memberData.status === 'string' ? memberData.status.trim().toLowerCase() : ''
+  if (memberStatus === 'suspended') {
+    const projectName =
+      project && typeof project.name === 'string' && project.name.trim() !== '' ? project.name.trim() : ''
+    return <SuspendedWorkspaceScreen projectName={projectName} onSignOut={signOutUser} />
   }
 
   const pid =

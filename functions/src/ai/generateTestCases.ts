@@ -11,14 +11,13 @@ import {verifyPermission} from "../utils/rbac.js";
 
 interface GenerateTestCasesRequest {
   featureDescription: string;
-  projectId?: string;
+  projectId: string;
   moduleName?: string;
   extraContext?: string;
   count?: number;
 }
 
 export interface GenerateAndSaveRequest extends GenerateTestCasesRequest {
-  projectId: string;
   suiteId?: string;
 }
 
@@ -215,10 +214,11 @@ export const generateTestCases = onCall(
 
     const {featureDescription, moduleName, extraContext, resolvedCount} =
       validateGenerateInput(request.data as GenerateTestCasesRequest);
-    const projectId =
-      typeof (request.data as GenerateTestCasesRequest)?.projectId === "string" &&
-      (request.data as GenerateTestCasesRequest).projectId!.trim().length > 0 ?
-        (request.data as GenerateTestCasesRequest).projectId!.trim() : request.auth.uid;
+    const rawPid = (request.data as GenerateTestCasesRequest)?.projectId;
+    if (typeof rawPid !== "string" || rawPid.trim().length === 0) {
+      throw new HttpsError("invalid-argument", "projectId is required.");
+    }
+    const projectId = rawPid.trim();
 
     if (!admin.apps.length) admin.initializeApp();
     await verifyPermission(request.auth.uid, projectId, ["Owner", "Admin", "QA Lead"]);

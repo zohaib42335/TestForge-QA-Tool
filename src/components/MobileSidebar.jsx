@@ -7,6 +7,7 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { LogoLockup } from './Logo.jsx'
+import ProjectSwitcher from './ProjectSwitcher.jsx'
 
 /** @typedef {'dashboard'|'runs'|'new'|'templates'|'all'|'team'|'activity'} TabKey */
 
@@ -220,6 +221,10 @@ export default function MobileSidebar({
               </svg>
             </span>
           </button>
+        </div>
+
+        <div className="shrink-0 border-b border-[#D6E0F5] bg-white px-3.5 py-2">
+          <ProjectSwitcher projectName={pname} />
         </div>
 
         {/* Profile */}

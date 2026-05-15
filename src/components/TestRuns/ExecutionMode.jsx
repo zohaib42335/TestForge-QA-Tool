@@ -54,7 +54,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
   const canApproveRun = hasPermission('run_approve')
   const canCreateBug = hasPermission('bug_create')
   const showToast = useToast()
-  const { results, run, loading, error, computedStats } = useRunExecution(runId)
+  const { results, run, loading, error, computedStats } = useRunExecution(workspaceProjectId, runId)
 
   const [cardFlash, setCardFlash] = useState(
     /** @type {{ id: string, kind: 'pass' | 'fail' } | null} */ (null),
@@ -152,7 +152,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
   }, [notRunCount, totalCases, showToast])
 
   useEffect(() => {
-    if (!uid || !runId || !run || loading || viewOnly) return
+    if (!uid || !runId || !run || loading || viewOnly || !workspaceProjectId) return
 
     const tc =
       typeof run.totalCases === 'number'
@@ -180,7 +180,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
     if (same) return
 
     let cancelled = false
-    updateRunStats(uid, runId, next).catch(() => {
+    updateRunStats(workspaceProjectId, uid, runId, next).catch(() => {
       if (!cancelled) showToast('Something went wrong. Try again.', 'error')
     })
     return () => {
@@ -188,6 +188,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
     }
   }, [
     uid,
+    workspaceProjectId,
     runId,
     run,
     loading,
@@ -209,7 +210,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
     const oldResult = String(row?.result ?? 'Not Run')
     if (oldResult === String(newResult)) return
     try {
-      await updateTestResult(uid, id, newResult, notes, executedByLabel)
+      await updateTestResult(workspaceProjectId, uid, id, newResult, notes, executedByLabel)
       const actor = buildActivityActor(userProfile, user)
       const runName = run ? String(run.name ?? 'Test run') : 'Test run'
       const tcRef = row && row.testCaseId != null ? String(row.testCaseId) : ''
@@ -262,7 +263,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
     if (!id) return
     const res = String(row.result ?? 'Not Run')
     try {
-      await updateTestResult(uid, id, res, notesText, executedByLabel)
+      await updateTestResult(workspaceProjectId, uid, id, res, notesText, executedByLabel)
     } catch (e) {
       showToast('Something went wrong. Try again.', 'error')
     }
@@ -271,7 +272,7 @@ export default function ExecutionMode({ projectId: projectIdProp, runId, onExit,
   const handleFinish = async () => {
     if (!uid || notRunCount !== 0 || !canApproveRun) return
     try {
-      await updateRunStats(uid, runId, {
+      await updateRunStats(workspaceProjectId, uid, runId, {
         passCount,
         failCount,
         blockedCount,

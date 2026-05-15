@@ -20,6 +20,7 @@ import {createJiraIssue, syncBugStatusFromJira, testJiraConnection} from "./inte
 import {sendInviteEmail} from "./invites/sendInviteEmail.js";
 import {generateInviteLink} from "./invites/generateInviteLink.js";
 import {acceptInvite} from "./invites/acceptInvite.js";
+import {deleteProject} from "./projects/deleteProject.js";
 
 // For cost control, you can set the maximum number of containers that can be
 // running at the same time. This helps mitigate the impact of unexpected
@@ -41,3 +42,4 @@ export {autoCreateBug};
 export {createJiraIssue, syncBugStatusFromJira, testJiraConnection};
 export {sendInviteEmail};
 export {generateInviteLink, acceptInvite};
+export {deleteProject};

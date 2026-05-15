@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Role } from '../../constants/rbac'
 import { useProject } from '../../contexts/ProjectContext'
+import { useAuth } from '../../context/AuthContext.jsx'
 import { useToast } from '../Toast.jsx'
+import { sendInviteEmail } from '../../services/emailService'
 
 type Props = {
   open: boolean
@@ -25,7 +27,8 @@ function callableMessage(err: unknown): string {
 }
 
 export default function InviteMemberModal({ open, onClose, currentRole }: Props) {
-  const { projectId, inviteMember } = useProject()
+  const { projectId, project, inviteMember } = useProject()
+  const { user } = useAuth()
   const showToast = useToast()
 
   const [tab, setTab] = useState<'email' | 'link'>('email')
@@ -128,7 +131,35 @@ export default function InviteMemberModal({ open, onClose, currentRole }: Props)
         }
       }
       setEmailResults(out)
-      showToast(`Invites sent to ${out.length} people`, 'success')
+
+      // Send emails via EmailJS (non-blocking)
+      const inviterName = user?.displayName ?? user?.email ?? 'A teammate'
+      const projName = project?.name ?? 'TestForge'
+      const emailResults = await Promise.allSettled(
+        out.map((row) =>
+          sendInviteEmail({
+            toEmail: row.email,
+            invitedByName: inviterName,
+            projectName: projName,
+            role: chips.find((c) => c.email === row.email)?.role ?? 'Member',
+            inviteLink: row.inviteLink,
+          }),
+        ),
+      )
+      const failedEmails = out.filter((_, i) => {
+        const r = emailResults[i]
+        return r.status === 'rejected' || (r.status === 'fulfilled' && !r.value)
+      })
+      if (failedEmails.length === 0) {
+        showToast(`Invites sent to ${out.length} people`, 'success')
+      } else if (failedEmails.length < out.length) {
+        showToast(
+          `${out.length - failedEmails.length} invite(s) emailed. ${failedEmails.length} email(s) failed — share links manually.`,
+          'warning',
+        )
+      } else {
+        showToast('Invites created but emails failed to send. Share the links manually.', 'warning')
+      }
     } finally {
       setSubmitting(false)
     }

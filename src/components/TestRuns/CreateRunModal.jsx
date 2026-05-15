@@ -36,11 +36,12 @@ function priorityClass(p) {
 
 /**
  * @param {Object} props
+ * @param {string|null|undefined} props.projectId
  * @param {Array<Record<string, unknown>>} props.testCases
  * @param {boolean} props.testCasesLoading
  * @param {() => void} props.onClose
  */
-export default function CreateRunModal({ testCases, testCasesLoading, onClose }) {
+export default function CreateRunModal({ projectId, testCases, testCasesLoading, onClose }) {
   const { user, userProfile } = useAuth()
   const showToast = useToast()
 
@@ -132,10 +133,14 @@ export default function CreateRunModal({ testCases, testCasesLoading, onClose })
       showToast('You must be signed in to create a test run.', 'error')
       return
     }
+    if (!projectId) {
+      showToast('No active project.', 'error')
+      return
+    }
 
     setSubmitting(true)
     try {
-      const runId = await createTestRun(uid, {
+      const runId = await createTestRun(projectId, uid, {
         name: runName.trim(),
         description: runDescription.trim(),
         testCaseIds: ids,

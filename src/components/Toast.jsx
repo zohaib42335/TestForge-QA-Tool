@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react'
 
-/** @typedef {'success' | 'success-pass' | 'success-fail' | 'success-blocked' | 'success-notrun' | 'orange' | 'error' | 'neutral'} ToastVariant */
+/** @typedef {'success' | 'success-pass' | 'success-fail' | 'success-blocked' | 'success-notrun' | 'orange' | 'error' | 'warning' | 'neutral'} ToastVariant */
 
 const ToastContext = createContext(
   /** @type {((message: string, variant?: ToastVariant) => void) | null} */ (null),
@@ -42,7 +42,7 @@ export function ToastProvider({ children }) {
       ? 'border-green-200 bg-[#DCFCE7] text-[#166534] border-l-[#16A34A]'
       : toast?.variant === 'success-fail'
         ? 'border-red-200 bg-[#FEE2E2] text-[#991B1B] border-l-[#DC2626]'
-        : toast?.variant === 'success-blocked'
+        : toast?.variant === 'success-blocked' || toast?.variant === 'warning'
           ? 'border-amber-200 bg-[#FEF3C7] text-[#92400E] border-l-[#D97706]'
           : toast?.variant === 'success-notrun'
             ? 'border-[#B0C0E0] bg-[#EEF2FB] text-[#1A3263] border-l-[#9CA3AF]'

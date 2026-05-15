@@ -20,6 +20,8 @@ import { getRelativeTime } from '../utils/relativeTime.js'
 import { PermissionGate } from './common/PermissionGate'
 import RoleBadge from './common/RoleBadge'
 import InviteMemberModal from './modals/InviteMemberModal'
+import { sendInviteEmail } from '../services/emailService'
+import { useProject } from '../contexts/ProjectContext'
 
 function initialsFromName(name, email) {
   const n = String(name ?? '').trim()
@@ -67,6 +69,7 @@ function daysUntilExpiry(invite) {
 
 export default function TeamManager({ projectId }) {
   const { user } = useAuth()
+  const { project } = useProject()
   const { userRole, isOwner, isAdmin, hasPermission, loading: roleLoading } = useRole()
   const showToast = useToast()
 
@@ -230,17 +233,38 @@ export default function TeamManager({ projectId }) {
     async (inviteId) => {
       const db = getDb()
       if (!db || !projectId) return
+      const invite = pendingInvites.find((i) => i.id === inviteId)
       try {
         await updateDoc(doc(db, `projects/${projectId}/invites/${inviteId}`), {
           invitedAt: serverTimestamp(),
           expiresAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
         })
-        showToast('Invite resent', 'success')
+
+        // Send email via EmailJS
+        if (invite && String(invite.email ?? '').trim()) {
+          const link = buildInviteLink(projectId, invite)
+          const inviterName = user?.displayName ?? user?.email ?? 'A teammate'
+          const projName = project?.name ?? 'TestForge'
+          const sent = await sendInviteEmail({
+            toEmail: String(invite.email),
+            invitedByName: inviterName,
+            projectName: projName,
+            role: String(invite.role ?? 'Member'),
+            inviteLink: link,
+          })
+          if (sent) {
+            showToast(`Invite resent to ${invite.email}`, 'success')
+          } else {
+            showToast('Invite renewed but email failed. Share the link manually.', 'warning')
+          }
+        } else {
+          showToast('Invite renewed', 'success')
+        }
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Failed to resend invite.', 'error')
       }
     },
-    [projectId, showToast],
+    [pendingInvites, projectId, project, user, showToast],
   )
 
   const handleCancelInvite = useCallback(

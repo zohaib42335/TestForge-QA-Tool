@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { getDb } from '../firebase/firestore.js'
 import { callAcceptInvite, callGenerateInviteLink } from '../firebase/inviteCallables'
 import { COL_USERS } from '../firebase/schema.js'
+import { snapshotExists } from '../utils/firestoreSnapshot.js'
 
 export type Project = {
   id: string
@@ -122,7 +123,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const unsubUser = onSnapshot(
       userRef,
       (snap) => {
-        if (!snap.exists()) {
+        if (!snapshotExists(snap)) {
           setProjectId(null)
           setLoading(false)
           return
@@ -165,7 +166,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       pref,
       (snap) => {
         setProject(
-          snap.exists() ? { id: snap.id, ...(snap.data() as Record<string, unknown>) } : null,
+          snapshotExists(snap) ? { id: snap.id, ...(snap.data() as Record<string, unknown>) } : null,
         )
       },
       (err) => setError(err.message || 'Could not read project.'),
@@ -174,7 +175,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const offM = onSnapshot(
       mref,
       (snap) => {
-        if (!snap.exists()) {
+        if (!snapshotExists(snap)) {
           setMemberData(null)
           setUserRole(null)
         } else {

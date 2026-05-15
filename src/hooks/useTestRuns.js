@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useProject } from '../contexts/ProjectContext'
 import {
   subscribeToRunResults,
   subscribeToTestRun,
@@ -12,17 +13,18 @@ import {
 
 /**
  * useTestRuns — manages test run list state
- * Subscribes to Firestore testRuns collection (per signed-in user).
+ * Subscribes to Firestore `projects/{projectId}/testRuns`.
  */
 export function useTestRuns() {
   const { user } = useAuth()
+  const { projectId } = useProject()
   const [runs, setRuns] = useState(/** @type {Array<Record<string, unknown> & { id: string }>} */ ([]))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(/** @type {string|null} */ (null))
 
   useEffect(() => {
     const uid = user?.uid
-    if (!uid) {
+    if (!uid || !projectId) {
       setRuns([])
       setLoading(false)
       setError(null)
@@ -31,6 +33,7 @@ export function useTestRuns() {
 
     setLoading(true)
     const unsub = subscribeToTestRuns(
+      projectId,
       uid,
       (data) => {
         setRuns(Array.isArray(data) ? data : [])
@@ -44,18 +47,19 @@ export function useTestRuns() {
       },
     )
     return () => unsub()
-  }, [user?.uid])
+  }, [user?.uid, projectId])
 
   return { runs, loading, error }
 }
 
 /**
  * useRunExecution — manages live execution state for one run
- * Subscribes to testRunResults and the parent testRun document.
+ * Subscribes to `projects/{projectId}/testRunResults` and the parent test run document.
  *
+ * @param {string|null|undefined} projectId
  * @param {string|null} runId
  */
-export function useRunExecution(runId) {
+export function useRunExecution(projectId, runId) {
   const { user } = useAuth()
   const [results, setResults] = useState(
     /** @type {Array<Record<string, unknown> & { id: string }>} */ ([]),
@@ -66,7 +70,7 @@ export function useRunExecution(runId) {
 
   useEffect(() => {
     const uid = user?.uid
-    if (!runId || !uid) {
+    if (!runId || !uid || !projectId) {
       setResults([])
       setRun(null)
       setLoading(false)
@@ -85,6 +89,7 @@ export function useRunExecution(runId) {
     }
 
     const unsubRun = subscribeToTestRun(
+      projectId,
       uid,
       runId,
       (data) => {
@@ -100,6 +105,7 @@ export function useRunExecution(runId) {
     )
 
     const unsubResults = subscribeToRunResults(
+      projectId,
       uid,
       runId,
       (data) => {
@@ -118,7 +124,7 @@ export function useRunExecution(runId) {
       unsubRun()
       unsubResults()
     }
-  }, [runId, user?.uid])
+  }, [runId, user?.uid, projectId])
 
   const computedStats = useMemo(() => {
     const total = results.length

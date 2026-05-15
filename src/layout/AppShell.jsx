@@ -23,6 +23,8 @@ import TestRuns from '../components/TestRuns/index.jsx'
 import BugTracker from '../components/BugTracker.jsx'
 import BugDetail from '../components/BugDetail.jsx'
 import ProjectSettings from '../components/ProjectSettings.jsx'
+import PageSkeleton from '../components/PageSkeleton.jsx'
+import ProjectSwitcher from '../components/ProjectSwitcher.jsx'
 import Toolbar from '../components/Toolbar.jsx'
 import MobileSidebar from '../components/MobileSidebar.jsx'
 import { extractTokenFromUrl, initiateGoogleSignIn } from '../utils/googleSheets.js'
@@ -101,7 +103,7 @@ function RoleAwareTabs({
 export default function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { projectId: ctxProjectId, project } = useProject()
+  const { projectId: ctxProjectId, project, loading: projectCtxLoading } = useProject()
 
   const {
     user,
@@ -381,6 +383,14 @@ export default function AppShell() {
       ? project.name.trim()
       : ''
   const isUnauthorizedPage = location.pathname.replace(/\/+$/, '') === '/unauthorized'
+
+  if (projectCtxLoading) {
+    return <PageSkeleton />
+  }
+
+  if (!ctxProjectId) {
+    return null
+  }
 
   return (
     <RoleProvider projectId={activeProjectId ?? undefined}>

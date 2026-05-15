@@ -87,6 +87,18 @@ service cloud.firestore {
       return isAuth() && workspaceRole() in roles;
     }
 
+    function userProjectId() {
+      return isAuth()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && 'projectId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.projectId
+        : null;
+    }
+
+    function isAssignedToProject(projectId) {
+      return isAuth() && userProjectId() == projectId;
+    }
+
     // ---------------------------------------------------------------------
     // Users collection (/users/{uid} is source of truth for project membership)
     // ---------------------------------------------------------------------
@@ -105,7 +117,13 @@ service cloud.firestore {
     // Projects / workspace
     // ---------------------------------------------------------------------
     match /projects/{projectId} {
-      allow read: if isMember(projectId);
+      // get (single doc): members OR the project owner can read.
+      // This lets isFirstOwnerMemberCreate verify ownerId before the member doc exists.
+      allow get: if isMember(projectId)
+        || (isAuth() && resource.data.ownerId == request.auth.uid);
+      // list (collection queries): any signed-in user can query.
+      // Required so new users can check slug availability during onboarding.
+      allow list: if isAuth();
       allow create: if isAuth()
         && request.resource.data.ownerId == request.auth.uid
         && userHasNoProject();
@@ -131,11 +149,17 @@ service cloud.firestore {
       }
 
       match /testCases/{docId} {
+        allow read: if isMember(projectId) || isOwner(projectId) || isAssignedToProject(projectId);
+        allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member'])
+          || (isOwner(projectId) && isAssignedToProject(projectId));
+      }
+
+      match /testRuns/{docId} {
         allow read: if isMember(projectId);
         allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
       }
 
-      match /testRuns/{docId} {
+      match /testRunResults/{docId} {
         allow read: if isMember(projectId);
         allow write: if hasRole(projectId, ['Owner', 'Admin', 'QA Lead', 'Member']);
       }

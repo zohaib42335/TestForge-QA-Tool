@@ -200,12 +200,14 @@ export const testJiraConnection = onCall(
       throw new HttpsError("unauthenticated", "You must be signed in.");
     }
 
+    const uid = request.auth.uid;
     const {projectId} = request.data as {projectId: string};
     if (!projectId) {
       throw new HttpsError("invalid-argument", "projectId is required.");
     }
 
     const db = ensureApp();
+    await verifyPermission(uid, projectId, ["Owner", "Admin"]);
     const cfg = await getJiraConfig(db, projectId);
     const base = cfg.jiraBaseUrl.replace(/\/+$/, "");
     const url = `${base}/rest/api/3/myself`;
@@ -391,6 +393,7 @@ export const syncBugStatusFromJira = onCall(
       throw new HttpsError("unauthenticated", "You must be signed in.");
     }
 
+    const uid = request.auth.uid;
     const {projectId, bugId} = request.data as {
       projectId: string;
       bugId: string;
@@ -404,6 +407,12 @@ export const syncBugStatusFromJira = onCall(
     }
 
     const db = ensureApp();
+    await verifyPermission(uid, projectId, [
+      "Owner",
+      "Admin",
+      "QA Lead",
+      "Member",
+    ]);
     const cfg = await getJiraConfig(db, projectId);
 
     const bugRef = db.doc(`projects/${projectId}/bugs/${bugId}`);

@@ -56,6 +56,11 @@ export const generateInviteLink = onCall(
       throw new HttpsError("invalid-argument", "projectId is required.");
     }
 
+    // Must initialize Admin SDK before any Firestore access (including verifyPermission)
+    if (!admin.apps.length) {
+      admin.initializeApp();
+    }
+
     const inviterRole = await verifyPermission(uid, projectId, ["Owner", "Admin"]);
     if (!roleAllowedForInviter(inviterRole, role)) {
       throw new HttpsError(
@@ -69,10 +74,6 @@ export const generateInviteLink = onCall(
       rawEmail == null || String(rawEmail).trim() === ""
         ? null
         : String(rawEmail).trim().toLowerCase();
-
-    if (!admin.apps.length) {
-      admin.initializeApp();
-    }
     const db = admin.firestore();
     const invitesCol = db.collection(`projects/${projectId}/invites`);
 
