@@ -232,7 +232,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           const existing = pendingSnap.docs[0]
           const token = String(existing.get('token') ?? '').trim()
           const origin = window.location?.origin?.replace(/\/+$/, '') || 'https://testforge.app'
-          return { inviteLink: `${origin}/invite/${token}`, token }
+          return {
+            inviteLink: `${origin}/invite/${token}?project=${encodeURIComponent(projectId)}`,
+            token,
+          }
         }
 
         // Check if already a member
@@ -271,7 +274,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
       const origin = window.location?.origin?.replace(/\/+$/, '') || 'https://testforge.app'
       return {
-        inviteLink: `${origin}/invite/${token}`,
+        inviteLink: `${origin}/invite/${token}?project=${encodeURIComponent(projectId)}`,
         token,
       }
     },
