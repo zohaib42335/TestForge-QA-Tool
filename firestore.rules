@@ -138,14 +138,20 @@ service cloud.firestore {
       }
 
       match /invites/{inviteId} {
-        allow read: if isMember(projectId)
-          || (resource.data.email is string && emailsMatch(resource.data.email))
-          || ('openInvite' in resource.data && resource.data.openInvite == true && isAuth());
-        allow create: if hasRole(projectId, ['Owner', 'Admin']);
+        // get: members, owner, invitee by email, or open-invite holders can read a specific doc
+        allow get: if isMember(projectId)
+          || isOwner(projectId)
+          || (isAuth() && resource.data.email is string && emailsMatch(resource.data.email))
+          || (isAuth() && 'openInvite' in resource.data && resource.data.openInvite == true);
+        // list: any authenticated user can query (needed to look up invite by token during onboarding)
+        allow list: if isAuth();
+        allow create: if hasRole(projectId, ['Owner', 'Admin'])
+          || isOwner(projectId);
         allow update: if hasRole(projectId, ['Owner', 'Admin'])
-          || (resource.data.email is string && emailsMatch(resource.data.email))
-          || ('openInvite' in resource.data && resource.data.openInvite == true && isAuth());
-        allow delete: if hasRole(projectId, ['Owner', 'Admin']);
+          || isOwner(projectId)
+          || (isAuth() && resource.data.email is string && emailsMatch(resource.data.email))
+          || (isAuth() && 'openInvite' in resource.data && resource.data.openInvite == true);
+        allow delete: if hasRole(projectId, ['Owner', 'Admin']) || isOwner(projectId);
       }
 
       match /testCases/{docId} {

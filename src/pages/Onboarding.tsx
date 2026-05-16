@@ -25,7 +25,6 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import type { User } from 'firebase/auth'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getDb } from '../firebase/firestore.js'
-import { callAcceptInvite } from '../firebase/inviteCallables'
 import { COL_PROJECTS, COL_USERS } from '../firebase/schema.js'
 import { getFirebaseStorage } from '../firebase/config.js'
 import {
@@ -415,11 +414,53 @@ export default function Onboarding() {
   }
 
   const handlePathBAccept = async () => {
-    if (!user || !resolvedInvite?.token) return
+    if (!user || !resolvedInvite) return
+    const db = getDb()
+    if (!db) return
     setPathBBusy(true)
     setPathBError('')
     try {
-      await callAcceptInvite(String(resolvedInvite.token))
+      const { projectId, inviteId, role, projectName } = resolvedInvite
+      const batch = writeBatch(db)
+
+      // 1. Create member document
+      const memberRef = doc(db, COL_PROJECTS, projectId, 'members', user.uid)
+      batch.set(memberRef, {
+        uid: user.uid,
+        email: user.email ?? '',
+        displayName: user.displayName || user.email || 'Member',
+        photoURL: user.photoURL ?? null,
+        role,
+        joinedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        invitedBy: resolvedInvite.invitedBy || null,
+        status: 'active',
+        inviteId,
+      })
+
+      // 2. Update user profile
+      const userRef = doc(db, COL_USERS, user.uid)
+      batch.set(
+        userRef,
+        {
+          projectId,
+          role,
+          onboardingComplete: true,
+          lastLoginAt: serverTimestamp(),
+        },
+        { merge: true },
+      )
+
+      // 3. Mark invite as accepted
+      const inviteRef = doc(db, COL_PROJECTS, projectId, 'invites', inviteId)
+      batch.update(inviteRef, {
+        status: 'accepted',
+        acceptedAt: serverTimestamp(),
+        acceptedBy: user.uid,
+        updatedAt: serverTimestamp(),
+      })
+
+      await batch.commit()
       clearPendingInviteFromStorage()
       navigate('/dashboard', { replace: true })
     } catch (e) {
